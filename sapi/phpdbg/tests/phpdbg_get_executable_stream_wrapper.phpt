@@ -59,6 +59,7 @@ final class StreamWrapper
     public function stream_close() : bool { return \fclose($this->stream); }
     public function stream_eof() : bool { return \feof($this->stream); }
     public function stream_stat() { return \fstat($this->stream); }
+    public function stream_set_option($option, $arg1, $arg2) { return false; }
 
     private $stream = false;
 }
@@ -69,7 +70,7 @@ stream_wrapper_register('wrapper', StreamWrapper::class);
  * Next, we include a PHP file that contains executable lines, via the stream
  * wrapper.
  */
-$filename = __DIR__ . '/phpdbg_get_executable_stream_wrapper.inc';
+$filename = __DIR__ . DIRECTORY_SEPARATOR . 'phpdbg_get_executable_stream_wrapper.inc';
 require 'wrapper://' . $filename;
 
 /**

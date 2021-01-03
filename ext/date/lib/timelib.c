@@ -1,7 +1,7 @@
 /*
  * The MIT License (MIT)
  *
- * Copyright (c) 2015-2017 Derick Rethans
+ * Copyright (c) 2015-2019 Derick Rethans
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -115,7 +115,7 @@ timelib_rel_time* timelib_rel_time_clone(timelib_rel_time *rel)
 	return tmp;
 }
 
-void timelib_time_tz_abbr_update(timelib_time* tm, char* tz_abbr)
+void timelib_time_tz_abbr_update(timelib_time* tm, const char* tz_abbr)
 {
 	unsigned int i;
 	size_t tz_abbr_len = strlen(tz_abbr);

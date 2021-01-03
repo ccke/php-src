@@ -18,7 +18,7 @@ $db->exec('INSERT INTO test VALUES(1)');
 
 var_dump($db->query('SELECT * from test'));
 foreach ($db->query('SELECT * from test') as $row) {
-	print_r($row);
+    print_r($row);
 }
 
 $stmt = $db->prepare('SELECT * from test');
@@ -27,10 +27,11 @@ $stmt->execute();
 $tmp = $stmt->getColumnMeta(0);
 
 // libmysql and mysqlnd will show the pdo_type entry at a different position in the hash
-if (!isset($tmp['pdo_type']) || (isset($tmp['pdo_type']) && $tmp['pdo_type'] != 2))
-	printf("Expecting pdo_type = 2 got %s\n", $tmp['pdo_type']);
+// and will report a different type, as mysqlnd returns native types.
+if (!isset($tmp['pdo_type']) || ($tmp['pdo_type'] != 1 && $tmp['pdo_type'] != 2))
+    printf("Expecting pdo_type = 1 got %s\n", $tmp['pdo_type']);
 else
-	unset($tmp['pdo_type']);
+    unset($tmp['pdo_type']);
 
 print_r($tmp);
 ?>

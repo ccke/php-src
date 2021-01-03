@@ -1,13 +1,18 @@
 --TEST--
 FFI 040: Support for scalar types
 --SKIPIF--
-<?php require_once('skipif.inc'); ?>
+<?php
+require_once('skipif.inc');
+if (pack('S', 0xABCD) !== pack('v', 0xABCD)) {
+    die('skip for little-endian architectures only');
+}
+?>
 --INI--
 ffi.enable=1
 --FILE--
 <?php
 $x = FFI::new("int");
-$x = 5;
+$x->cdata = 5;
 var_dump($x);
 var_dump(FFI::typeof($x));
 var_dump(FFI::cast("int8_t[4]", $x));

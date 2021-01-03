@@ -1,7 +1,5 @@
 /*
   +----------------------------------------------------------------------+
-  | PHP Version 7                                                        |
-  +----------------------------------------------------------------------+
   | Copyright (c) The PHP Group                                          |
   +----------------------------------------------------------------------+
   | This source file is subject to version 3.01 of the PHP license,      |
@@ -115,15 +113,15 @@ static inline void php_json_encode_double(smart_str *buf, double d, int options)
 
 #define PHP_JSON_HASH_PROTECT_RECURSION(_tmp_ht) \
 	do { \
-		if (_tmp_ht && !(GC_FLAGS(_tmp_ht) & GC_IMMUTABLE)) { \
-			GC_PROTECT_RECURSION(_tmp_ht); \
+		if (_tmp_ht) { \
+			GC_TRY_PROTECT_RECURSION(_tmp_ht); \
 		} \
 	} while (0)
 
 #define PHP_JSON_HASH_UNPROTECT_RECURSION(_tmp_ht) \
 	do { \
-		if (_tmp_ht && !(GC_FLAGS(_tmp_ht) & GC_IMMUTABLE)) { \
-			GC_UNPROTECT_RECURSION(_tmp_ht); \
+		if (_tmp_ht) { \
+			GC_TRY_UNPROTECT_RECURSION(_tmp_ht); \
 		} \
 	} while (0)
 
@@ -567,8 +565,16 @@ again:
 				return php_json_encode_serializable_object(buf, val, options, encoder);
 			}
 			/* fallthrough -- Non-serializable object */
-		case IS_ARRAY:
-			return php_json_encode_array(buf, val, options, encoder);
+		case IS_ARRAY: {
+			/* Avoid modifications (and potential freeing) of the array through a reference when a
+			 * jsonSerialize() method is invoked. */
+			zval zv;
+			int res;
+			ZVAL_COPY(&zv, val);
+			res = php_json_encode_array(buf, &zv, options, encoder);
+			zval_ptr_dtor_nogc(&zv);
+			return res;
+		}
 
 		case IS_REFERENCE:
 			val = Z_REFVAL_P(val);

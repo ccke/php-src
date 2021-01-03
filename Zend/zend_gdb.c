@@ -54,7 +54,7 @@ ZEND_API zend_never_inline void __jit_debug_register_code()
 	__asm__ __volatile__("");
 }
 
-ZEND_API int zend_gdb_register_code(const void *object, size_t size)
+ZEND_API bool zend_gdb_register_code(const void *object, size_t size)
 {
 	zend_gdbjit_code_entry *entry;
 
@@ -102,9 +102,9 @@ ZEND_API void zend_gdb_unregister_all(void)
 	}
 }
 
-ZEND_API int zend_gdb_present(void)
+ZEND_API bool zend_gdb_present(void)
 {
-	int ret = 0;
+	bool ret = 0;
 	int fd = open("/proc/self/status", O_RDONLY);
 
 	if (fd > 0) {
@@ -123,9 +123,10 @@ ZEND_API int zend_gdb_present(void)
 				}
 				pid = atoi(s);
 				if (pid) {
+					char out[1024];
 					sprintf(buf, "/proc/%d/exe", (int)pid);
-					if (readlink(buf, buf, sizeof(buf) - 1) > 0) {
-						if (strstr(buf, "gdb")) {
+					if (readlink(buf, out, sizeof(out) - 1) > 0) {
+						if (strstr(out, "gdb")) {
 							ret = 1;
 						}
 					}

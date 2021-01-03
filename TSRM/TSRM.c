@@ -17,6 +17,13 @@
 #include <stdio.h>
 #include <stdarg.h>
 
+#if ZEND_DEBUG
+# include <assert.h>
+# define TSRM_ASSERT(c) assert(c)
+#else
+# define TSRM_ASSERT(c)
+#endif
+
 typedef struct _tsrm_tls_entry tsrm_tls_entry;
 
 /* TSRMLS_CACHE_DEFINE; is already done in Zend, this is being always compiled statically. */
@@ -67,7 +74,7 @@ int tsrm_error(int level, const char *format, ...);
 static int tsrm_error_level;
 static FILE *tsrm_error_file;
 
-#if TSRM_DEBUG
+#ifdef TSRM_DEBUG
 #define TSRM_ERROR(args) tsrm_error args
 #define TSRM_SAFE_RETURN_RSRC(array, offset, range)																		\
 	{																													\
@@ -95,7 +102,7 @@ static FILE *tsrm_error_file;
 	}
 #endif
 
-#if defined(TSRM_WIN32)
+#ifdef TSRM_WIN32
 static DWORD tls_key;
 # define tsrm_tls_set(what)		TlsSetValue(tls_key, (void*)(what))
 # define tsrm_tls_get()			TlsGetValue(tls_key)
@@ -106,11 +113,12 @@ static pthread_key_t tls_key;
 #endif
 
 TSRM_TLS uint8_t in_main_thread = 0;
+TSRM_TLS uint8_t is_thread_shutdown = 0;
 
 /* Startup TSRM (call once for the entire process) */
-TSRM_API int tsrm_startup(int expected_threads, int expected_resources, int debug_level, char *debug_filename)
+TSRM_API int tsrm_startup(int expected_threads, int expected_resources, int debug_level, const char *debug_filename)
 {/*{{{*/
-#if defined(TSRM_WIN32)
+#ifdef TSRM_WIN32
 	tls_key = TlsAlloc();
 #else
 	pthread_key_create(&tls_key, 0);
@@ -118,6 +126,7 @@ TSRM_API int tsrm_startup(int expected_threads, int expected_resources, int debu
 
 	/* ensure singleton */
 	in_main_thread = 1;
+	is_thread_shutdown = 0;
 
 	tsrm_error_file = stderr;
 	tsrm_error_set(debug_level, debug_filename);
@@ -126,6 +135,7 @@ TSRM_API int tsrm_startup(int expected_threads, int expected_resources, int debu
 	tsrm_tls_table = (tsrm_tls_entry **) calloc(tsrm_tls_table_size, sizeof(tsrm_tls_entry *));
 	if (!tsrm_tls_table) {
 		TSRM_ERROR((TSRM_ERROR_LEVEL_ERROR, "Unable to allocate TLS table"));
+		is_thread_shutdown = 1;
 		return 0;
 	}
 	id_count=0;
@@ -134,8 +144,8 @@ TSRM_API int tsrm_startup(int expected_threads, int expected_resources, int debu
 	resource_types_table = (tsrm_resource_type *) calloc(resource_types_table_size, sizeof(tsrm_resource_type));
 	if (!resource_types_table) {
 		TSRM_ERROR((TSRM_ERROR_LEVEL_ERROR, "Unable to allocate resource types table"));
+		is_thread_shutdown = 1;
 		free(tsrm_tls_table);
-		tsrm_tls_table = NULL;
 		return 0;
 	}
 
@@ -157,50 +167,49 @@ TSRM_API void tsrm_shutdown(void)
 {/*{{{*/
 	int i;
 
-	if (!in_main_thread) {
-		/* ensure singleton */
+	if (is_thread_shutdown) {
+		/* shutdown must only occur once */
 		return;
 	}
 
-	if (tsrm_tls_table) {
-		for (i=0; i<tsrm_tls_table_size; i++) {
-			tsrm_tls_entry *p = tsrm_tls_table[i], *next_p;
+	is_thread_shutdown = 1;
 
-			while (p) {
-				int j;
+	if (!in_main_thread) {
+		/* only the main thread may shutdown tsrm */
+		return;
+	}
 
-				next_p = p->next;
-				for (j=0; j<p->count; j++) {
-					if (p->storage[j]) {
-						if (resource_types_table && !resource_types_table[j].done && resource_types_table[j].dtor) {
-							resource_types_table[j].dtor(p->storage[j]);
-						}
-						if (!resource_types_table[j].fast_offset) {
-							free(p->storage[j]);
-						}
+	for (i=0; i<tsrm_tls_table_size; i++) {
+		tsrm_tls_entry *p = tsrm_tls_table[i], *next_p;
+
+		while (p) {
+			int j;
+
+			next_p = p->next;
+			for (j=0; j<p->count; j++) {
+				if (p->storage[j]) {
+					if (resource_types_table && !resource_types_table[j].done && resource_types_table[j].dtor) {
+						resource_types_table[j].dtor(p->storage[j]);
+					}
+					if (!resource_types_table[j].fast_offset) {
+						free(p->storage[j]);
 					}
 				}
-				free(p->storage);
-				free(p);
-				p = next_p;
 			}
+			free(p->storage);
+			free(p);
+			p = next_p;
 		}
-		free(tsrm_tls_table);
-		tsrm_tls_table = NULL;
 	}
-	if (resource_types_table) {
-		free(resource_types_table);
-		resource_types_table=NULL;
-	}
+	free(tsrm_tls_table);
+	free(resource_types_table);
 	tsrm_mutex_free(tsmm_mutex);
-	tsmm_mutex = NULL;
 	tsrm_mutex_free(tsrm_env_mutex);
-	tsrm_env_mutex = NULL;
 	TSRM_ERROR((TSRM_ERROR_LEVEL_CORE, "Shutdown TSRM"));
 	if (tsrm_error_file!=stderr) {
 		fclose(tsrm_error_file);
 	}
-#if defined(TSRM_WIN32)
+#ifdef TSRM_WIN32
 	TlsFree(tls_key);
 #else
 	pthread_setspecific(tls_key, 0);
@@ -219,12 +228,12 @@ TSRM_API void tsrm_shutdown(void)
 
 /* {{{ */
 /* environ lock api */
-TSRM_API int tsrm_env_lock() {
-    return tsrm_mutex_lock(tsrm_env_mutex);
+TSRM_API void tsrm_env_lock(void) {
+    tsrm_mutex_lock(tsrm_env_mutex);
 }
 
-TSRM_API int tsrm_env_unlock() {
-    return tsrm_mutex_unlock(tsrm_env_mutex);
+TSRM_API void tsrm_env_unlock(void) {
+    tsrm_mutex_unlock(tsrm_env_mutex);
 } /* }}} */
 
 /* enlarge the arrays for the already active threads */
@@ -470,6 +479,8 @@ void ts_free_thread(void)
 	int hash_value;
 	tsrm_tls_entry *last=NULL;
 
+	TSRM_ASSERT(!in_main_thread);
+
 	tsrm_mutex_lock(tsmm_mutex);
 	hash_value = THREAD_HASH_OF(thread_id, tsrm_tls_table_size);
 	thread_resources = tsrm_tls_table[hash_value];
@@ -503,55 +514,6 @@ void ts_free_thread(void)
 	}
 	tsrm_mutex_unlock(tsmm_mutex);
 }/*}}}*/
-
-
-/* frees all resources allocated for all threads except current */
-void ts_free_worker_threads(void)
-{/*{{{*/
-	tsrm_tls_entry *thread_resources;
-	int i;
-	THREAD_T thread_id = tsrm_thread_id();
-	int hash_value;
-	tsrm_tls_entry *last=NULL;
-
-	tsrm_mutex_lock(tsmm_mutex);
-	hash_value = THREAD_HASH_OF(thread_id, tsrm_tls_table_size);
-	thread_resources = tsrm_tls_table[hash_value];
-
-	while (thread_resources) {
-		if (thread_resources->thread_id != thread_id) {
-			for (i=0; i<thread_resources->count; i++) {
-				if (resource_types_table[i].dtor) {
-					resource_types_table[i].dtor(thread_resources->storage[i]);
-				}
-			}
-			for (i=0; i<thread_resources->count; i++) {
-				if (!resource_types_table[i].fast_offset) {
-					free(thread_resources->storage[i]);
-				}
-			}
-			free(thread_resources->storage);
-			if (last) {
-				last->next = thread_resources->next;
-			} else {
-				tsrm_tls_table[hash_value] = thread_resources->next;
-			}
-			free(thread_resources);
-			if (last) {
-				thread_resources = last->next;
-			} else {
-				thread_resources = tsrm_tls_table[hash_value];
-			}
-		} else {
-			if (thread_resources->next) {
-				last = thread_resources;
-			}
-			thread_resources = thread_resources->next;
-		}
-	}
-	tsrm_mutex_unlock(tsmm_mutex);
-}/*}}}*/
-
 
 /* deallocates all occurrences of a given id */
 void ts_free_id(ts_rsrc_id id)
@@ -715,7 +677,7 @@ TSRM_API void *tsrm_set_shutdown_handler(tsrm_shutdown_func_t shutdown_handler)
  * Debug support
  */
 
-#if TSRM_DEBUG
+#ifdef TSRM_DEBUG
 int tsrm_error(int level, const char *format, ...)
 {/*{{{*/
 	if (level<=tsrm_error_level) {
@@ -736,11 +698,11 @@ int tsrm_error(int level, const char *format, ...)
 #endif
 
 
-void tsrm_error_set(int level, char *debug_filename)
+void tsrm_error_set(int level, const char *debug_filename)
 {/*{{{*/
 	tsrm_error_level = level;
 
-#if TSRM_DEBUG
+#ifdef TSRM_DEBUG
 	if (tsrm_error_file!=stderr) { /* close files opened earlier */
 		fclose(tsrm_error_file);
 	}
@@ -764,7 +726,10 @@ TSRM_API void *tsrm_get_ls_cache(void)
 /* Returns offset of tsrm_ls_cache slot from Thread Control Block address */
 TSRM_API size_t tsrm_get_ls_cache_tcb_offset(void)
 {/*{{{*/
-#if defined(__x86_64__) && defined(__GNUC__)
+#if defined(__APPLE__) && defined(__x86_64__)
+    // TODO: Implement support for fast JIT ZTS code ???
+	return 0;
+#elif defined(__x86_64__) && defined(__GNUC__)
 	size_t ret;
 
 	asm ("movq _tsrm_ls_cache@gottpoff(%%rip),%0"
@@ -786,9 +751,14 @@ TSRM_API uint8_t tsrm_is_main_thread(void)
 	return in_main_thread;
 }/*}}}*/
 
+TSRM_API uint8_t tsrm_is_shutdown(void)
+{/*{{{*/
+    return is_thread_shutdown;
+}/*}}}*/
+
 TSRM_API const char *tsrm_api_name(void)
 {/*{{{*/
-#if defined(TSRM_WIN32)
+#ifdef TSRM_WIN32
 	return "Windows Threads";
 #else
 	return "POSIX Threads";

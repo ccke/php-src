@@ -60,7 +60,7 @@ void zend_accel_blacklist_init(zend_blacklist *blacklist)
 
 	blacklist->entries = (zend_blacklist_entry *) calloc(sizeof(zend_blacklist_entry), blacklist->size);
 	if (!blacklist->entries) {
-		zend_accel_error(ACCEL_LOG_FATAL, "Blacklist initialization: no memory\n");
+		zend_accel_error_noreturn(ACCEL_LOG_FATAL, "Blacklist initialization: no memory\n");
 		return;
 	}
 	blacklist->regexp_list = NULL;
@@ -68,7 +68,7 @@ void zend_accel_blacklist_init(zend_blacklist *blacklist)
 
 static void blacklist_report_regexp_error(const char *pcre_error, int pcre_error_offset)
 {
-	zend_accel_error(ACCEL_LOG_ERROR, "Blacklist compilation failed (offset: %d), %s\n", pcre_error_offset, pcre_error);
+	zend_accel_error_noreturn(ACCEL_LOG_ERROR, "Blacklist compilation failed (offset: %d), %s\n", pcre_error_offset, pcre_error);
 }
 
 static void zend_accel_blacklist_update_regexp(zend_blacklist *blacklist)
@@ -163,7 +163,7 @@ static void zend_accel_blacklist_update_regexp(zend_blacklist *blacklist)
 		if (*c || i == blacklist->pos - 1) {
 			if (*c) {
 				if (!backtrack) {
-					zend_accel_error(ACCEL_LOG_ERROR, "Too long blacklist entry\n");
+					zend_accel_error_noreturn(ACCEL_LOG_ERROR, "Too long blacklist entry\n");
 				}
 				p = backtrack;
 			} else {
@@ -173,7 +173,7 @@ static void zend_accel_blacklist_update_regexp(zend_blacklist *blacklist)
 
 			it = (zend_regexp_list*)malloc(sizeof(zend_regexp_list));
 			if (!it) {
-				zend_accel_error(ACCEL_LOG_ERROR, "malloc() failed\n");
+				zend_accel_error_noreturn(ACCEL_LOG_ERROR, "malloc() failed\n");
 				return;
 			}
 			it->next = NULL;
@@ -205,8 +205,11 @@ static void zend_accel_blacklist_update_regexp(zend_blacklist *blacklist)
 
 void zend_accel_blacklist_shutdown(zend_blacklist *blacklist)
 {
-	zend_blacklist_entry *p = blacklist->entries, *end = blacklist->entries + blacklist->pos;
+	if (!blacklist->entries) {
+		return;
+	}
 
+	zend_blacklist_entry *p = blacklist->entries, *end = blacklist->entries + blacklist->pos;
 	while (p<end) {
 		free(p->path);
 		p++;
@@ -232,11 +235,7 @@ static inline void zend_accel_blacklist_allocate(zend_blacklist *blacklist)
 	}
 }
 
-#ifdef HAVE_GLOB
 static void zend_accel_blacklist_loadone(zend_blacklist *blacklist, char *filename)
-#else
-void zend_accel_blacklist_load(zend_blacklist *blacklist, char *filename)
-#endif
 {
 	char buf[MAXPATHLEN + 1], real_path[MAXPATHLEN + 1], *blacklist_path = NULL;
 	FILE *fp;
@@ -303,7 +302,7 @@ void zend_accel_blacklist_load(zend_blacklist *blacklist, char *filename)
 		blacklist->entries[blacklist->pos].path_length = path_length;
 		blacklist->entries[blacklist->pos].path = (char *)malloc(path_length + 1);
 		if (!blacklist->entries[blacklist->pos].path) {
-			zend_accel_error(ACCEL_LOG_ERROR, "malloc() failed\n");
+			zend_accel_error_noreturn(ACCEL_LOG_ERROR, "malloc() failed\n");
 			fclose(fp);
 			return;
 		}
@@ -315,12 +314,11 @@ void zend_accel_blacklist_load(zend_blacklist *blacklist, char *filename)
 	if (blacklist_path) {
 		free(blacklist_path);
 	}
-	zend_accel_blacklist_update_regexp(blacklist);
 }
 
-#ifdef HAVE_GLOB
 void zend_accel_blacklist_load(zend_blacklist *blacklist, char *filename)
 {
+#ifdef HAVE_GLOB
 	glob_t globbuf;
 	int    ret;
 	unsigned int i;
@@ -340,8 +338,11 @@ void zend_accel_blacklist_load(zend_blacklist *blacklist, char *filename)
 		}
 		globfree(&globbuf);
 	}
-}
+#else
+	zend_accel_blacklist_loadone(blacklist, filename);
 #endif
+	zend_accel_blacklist_update_regexp(blacklist);
+}
 
 zend_bool zend_accel_blacklist_is_blacklisted(zend_blacklist *blacklist, char *verify_path, size_t verify_path_len)
 {

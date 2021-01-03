@@ -11,7 +11,7 @@
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-    Lesser General Public License for more details.  (COPYING.LIB)
+    Lesser General Public License for more details.  (LICENSE)
 
     You should have received a copy of the GNU Lesser General Public
     License along with this library; if not, write to:
@@ -70,7 +70,6 @@ bc_sqrt (bc_num *num, int scale)
 
   /* Initialize the variables. */
   rscale = MAX (scale, (*num)->n_scale);
-  bc_init_num(&guess);
   bc_init_num(&guess1);
   bc_init_num(&diff);
   point5 = bc_new_num (1,1);
@@ -87,6 +86,7 @@ bc_sqrt (bc_num *num, int scale)
   else
     {
       /* The number is greater than 1.  Guess should start at 10^(exp/2). */
+      bc_init_num(&guess);
       bc_int2num (&guess,10);
 
       bc_int2num (&guess1,(*num)->n_len);

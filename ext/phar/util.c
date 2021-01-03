@@ -19,9 +19,7 @@
 */
 
 #include "phar_internal.h"
-#ifdef PHAR_HASH_OK
 #include "ext/hash/php_hash_sha.h"
-#endif
 
 #ifdef PHAR_HAVE_OPENSSL
 /* OpenSSL includes */
@@ -569,7 +567,7 @@ phar_entry_data *phar_get_or_create_entry_data(char *fname, size_t fname_len, ch
 	} else {
 		etemp.flags = etemp.old_flags = PHAR_ENT_PERM_DEF_FILE;
 	}
-	if (is_dir) {
+	if (is_dir && path_len) {
 		etemp.filename_len--; /* strip trailing / */
 		path_len--;
 	}
@@ -936,7 +934,7 @@ int phar_free_alias(phar_archive_data *phar, char *alias, size_t alias_len) /* {
 		return FAILURE;
 	}
 
-	/* this archive has no open references, so emit an E_STRICT and remove it */
+	/* this archive has no open references, so emit a notice and remove it */
 	if (zend_hash_str_del(&(PHAR_G(phar_fname_map)), phar->fname, phar->fname_len) != SUCCESS) {
 		return FAILURE;
 	}
@@ -1321,7 +1319,7 @@ phar_entry_info *phar_get_entry_info_dir(phar_archive_data *phar, char *path, si
 					return NULL;
 				}
 
-				if (ssb.sb.st_mode & S_IFDIR && !dir) {
+				if ((ssb.sb.st_mode & S_IFDIR) && !dir) {
 					efree(test);
 					if (error) {
 						spprintf(error, 4096, "phar error: path \"%s\" is a directory", path);
@@ -1547,7 +1545,7 @@ int phar_verify_signature(php_stream *fp, size_t end_of_phar, uint32_t sig_type,
 				return FAILURE;
 			}
 
-			key = PEM_read_bio_PUBKEY(in, NULL,NULL, NULL);
+			key = PEM_read_bio_PUBKEY(in, NULL, NULL, NULL);
 			BIO_free(in);
 			zend_string_release_ex(pubkey, 0);
 
@@ -1581,6 +1579,7 @@ int phar_verify_signature(php_stream *fp, size_t end_of_phar, uint32_t sig_type,
 
 			if (EVP_VerifyFinal(md_ctx, (unsigned char *)sig, sig_len, key) != 1) {
 				/* 1: signature verified, 0: signature does not match, -1: failed signature operation */
+				EVP_PKEY_free(key);
 				EVP_MD_CTX_destroy(md_ctx);
 
 				if (error) {
@@ -1590,13 +1589,13 @@ int phar_verify_signature(php_stream *fp, size_t end_of_phar, uint32_t sig_type,
 				return FAILURE;
 			}
 
+			EVP_PKEY_free(key);
 			EVP_MD_CTX_destroy(md_ctx);
 #endif
 
 			*signature_len = phar_hex_str((const char*)sig, sig_len, signature);
 		}
 		break;
-#ifdef PHAR_HASH_OK
 		case PHAR_SIG_SHA512: {
 			unsigned char digest[64];
 			PHP_SHA512_CTX context;
@@ -1677,14 +1676,6 @@ int phar_verify_signature(php_stream *fp, size_t end_of_phar, uint32_t sig_type,
 			*signature_len = phar_hex_str((const char*)digest, sizeof(digest), signature);
 			break;
 		}
-#else
-		case PHAR_SIG_SHA512:
-		case PHAR_SIG_SHA256:
-			if (error) {
-				spprintf(error, 0, "unsupported signature");
-			}
-			return FAILURE;
-#endif
 		case PHAR_SIG_SHA1: {
 			unsigned char digest[20];
 			PHP_SHA1_CTX  context;
@@ -1788,7 +1779,6 @@ int phar_create_signature(phar_archive_data *phar, php_stream *fp, char **signat
 	}
 
 	switch(phar->sig_flags) {
-#ifdef PHAR_HASH_OK
 		case PHAR_SIG_SHA512: {
 			unsigned char digest[64];
 			PHP_SHA512_CTX context;
@@ -1819,15 +1809,6 @@ int phar_create_signature(phar_archive_data *phar, php_stream *fp, char **signat
 			*signature_length = 32;
 			break;
 		}
-#else
-		case PHAR_SIG_SHA512:
-		case PHAR_SIG_SHA256:
-			if (error) {
-				spprintf(error, 0, "unable to write to phar \"%s\" with requested hash type", phar->fname);
-			}
-
-			return FAILURE;
-#endif
 		case PHAR_SIG_OPENSSL: {
 			unsigned char *sigbuf;
 #ifdef PHAR_HAVE_OPENSSL
@@ -1861,6 +1842,7 @@ int phar_create_signature(phar_archive_data *phar, php_stream *fp, char **signat
 			sigbuf = emalloc(siglen + 1);
 
 			if (!EVP_SignInit(md_ctx, EVP_sha1())) {
+				EVP_PKEY_free(key);
 				efree(sigbuf);
 				if (error) {
 					spprintf(error, 0, "unable to initialize openssl signature for phar \"%s\"", phar->fname);
@@ -1870,6 +1852,7 @@ int phar_create_signature(phar_archive_data *phar, php_stream *fp, char **signat
 
 			while ((sig_len = php_stream_read(fp, (char*)buf, sizeof(buf))) > 0) {
 				if (!EVP_SignUpdate(md_ctx, buf, sig_len)) {
+					EVP_PKEY_free(key);
 					efree(sigbuf);
 					if (error) {
 						spprintf(error, 0, "unable to update the openssl signature for phar \"%s\"", phar->fname);
@@ -1879,6 +1862,7 @@ int phar_create_signature(phar_archive_data *phar, php_stream *fp, char **signat
 			}
 
 			if (!EVP_SignFinal (md_ctx, sigbuf, &siglen, key)) {
+				EVP_PKEY_free(key);
 				efree(sigbuf);
 				if (error) {
 					spprintf(error, 0, "unable to write phar \"%s\" with requested openssl signature", phar->fname);
@@ -1887,6 +1871,7 @@ int phar_create_signature(phar_archive_data *phar, php_stream *fp, char **signat
 			}
 
 			sigbuf[siglen] = '\0';
+			EVP_PKEY_free(key);
 			EVP_MD_CTX_destroy(md_ctx);
 #else
 			size_t siglen;
@@ -1983,21 +1968,11 @@ static int phar_update_cached_entry(zval *data, void *argument) /* {{{ */
 		entry->tmp = estrdup(entry->tmp);
 	}
 
-	entry->metadata_str.s = NULL;
 	entry->filename = estrndup(entry->filename, entry->filename_len);
 	entry->is_persistent = 0;
 
-	if (Z_TYPE(entry->metadata) != IS_UNDEF) {
-		if (entry->metadata_len) {
-			char *buf = estrndup((char *) Z_PTR(entry->metadata), entry->metadata_len);
-			/* assume success, we would have failed before */
-			phar_parse_metadata((char **) &buf, &entry->metadata, entry->metadata_len);
-			efree(buf);
-		} else {
-			zval_copy_ctor(&entry->metadata);
-			entry->metadata_str.s = NULL;
-		}
-	}
+	/* Replace metadata with non-persistent clones of the metadata. */
+	phar_metadata_tracker_clone(&entry->metadata_tracker);
 	return ZEND_HASH_APPLY_KEEP;
 }
 /* }}} */
@@ -2032,16 +2007,7 @@ static void phar_copy_cached_phar(phar_archive_data **pphar) /* {{{ */
 		phar->signature = estrdup(phar->signature);
 	}
 
-	if (Z_TYPE(phar->metadata) != IS_UNDEF) {
-		/* assume success, we would have failed before */
-		if (phar->metadata_len) {
-			char *buf = estrndup((char *) Z_PTR(phar->metadata), phar->metadata_len);
-			phar_parse_metadata(&buf, &phar->metadata, phar->metadata_len);
-			efree(buf);
-		} else {
-			zval_copy_ctor(&phar->metadata);
-		}
-	}
+	phar_metadata_tracker_clone(&phar->metadata_tracker);
 
 	zend_hash_init(&newmanifest, sizeof(phar_entry_info),
 		zend_get_hash_value, destroy_phar_manifest_entry, 0);

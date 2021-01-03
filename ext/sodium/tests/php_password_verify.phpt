@@ -2,7 +2,7 @@
 Test interoperability of password_verify()
 --SKIPIF--
 <?php
-if (!function_exits('sodium_crypto_pwhash_str')) {
+if (!function_exists('sodium_crypto_pwhash_str')) {
   echo "skip - No crypto_pwhash_str_verify";
 }
 
@@ -19,13 +19,14 @@ if (!in_array($algo, password_algos(), true /* strict */)) {
 $opsSet = [
   SODIUM_CRYPTO_PWHASH_OPSLIMIT_INTERACTIVE,
   SODIUM_CRYPTO_PWHASH_OPSLIMIT_MODERATE,
-  SODIUM_CRYPTO_PWHASH_OPSLIMIT_SENSITIVE,
 ];
 $memSet = [
   SODIUM_CRYPTO_PWHASH_MEMLIMIT_INTERACTIVE,
   SODIUM_CRYPTO_PWHASH_MEMLIMIT_MODERATE,
-  SODIUM_CRYPTO_PWHASH_MEMLIMIT_SENSITIVE,
 ];
+
+echo 'Argon2 provider: ';
+var_dump(PASSWORD_ARGON2_PROVIDER);
 
 foreach($opsSet as $ops) {
   foreach($memSet as $mem) {
@@ -35,33 +36,28 @@ foreach($opsSet as $ops) {
     $hash = sodium_crypto_pwhash_str($password, $ops, $mem);
     echo "Hash: "; var_dump($hash);
     var_dump(password_verify($password, $hash));
+
+    // And verify that incorrect passwords fail.
+    $password[0] = chr(ord($password[0]) ^ 1);
+    var_dump(password_verify($password, $hash));
   }
 }
+?>
 --EXPECTF--
+Argon2 provider: string(%d) "%s"
 Using password: string(44) "%s"
-Hash: string(%d) "$argon2i%s"
+Hash: string(97) "$argon2id$v=19$m=65536,t=2,p=1$%s$%s"
 bool(true)
+bool(false)
 Using password: string(44) "%s"
-Hash: string(%d) "$argon2i%s"
+Hash: string(98) "$argon2id$v=19$m=262144,t=2,p=1$%s$%s"
 bool(true)
+bool(false)
 Using password: string(44) "%s"
-Hash: string(%d) "$argon2i%s"
+Hash: string(97) "$argon2id$v=19$m=65536,t=3,p=1$%s$%s"
 bool(true)
+bool(false)
 Using password: string(44) "%s"
-Hash: string(%d) "$argon2i%s"
+Hash: string(98) "$argon2id$v=19$m=262144,t=3,p=1$%s$%s"
 bool(true)
-Using password: string(44) "%s"
-Hash: string(%d) "$argon2i%s"
-bool(true)
-Using password: string(44) "%s"
-Hash: string(%d) "$argon2i%s"
-bool(true)
-Using password: string(44) "%s"
-Hash: string(%d) "$argon2i%s"
-bool(true)
-Using password: string(44) "%s"
-Hash: string(%d) "$argon2i%s"
-bool(true)
-Using password: string(44) "%s"
-Hash: string(%d) "$argon2i%s"
-bool(true)
+bool(false)

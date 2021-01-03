@@ -47,7 +47,7 @@ typedef struct _jmpbuf_wrapper
 	int ignore_warning;
 } jmpbuf_wrapper;
 
-static long php_jpeg_emit_message(j_common_ptr jpeg_info, int level)
+static void php_jpeg_emit_message(j_common_ptr jpeg_info, int level)
 {
 	char message[JMSG_LENGTH_MAX];
 	jmpbuf_wrapper *jmpbufw;
@@ -81,9 +81,7 @@ static long php_jpeg_emit_message(j_common_ptr jpeg_info, int level)
 			}
 		}
 	}
-	return 1;
 }
-
 
 
 /* Called by the IJG JPEG library upon encountering a fatal error */
@@ -356,8 +354,7 @@ gdImagePtr gdImageCreateFromJpegCtxEx (gdIOCtx * infile, int ignore_warning)
 
 	cinfo.err = jpeg_std_error (&jerr);
 	cinfo.client_data = &jmpbufw;
-
-	cinfo.err->emit_message = (void (*)(j_common_ptr,int)) php_jpeg_emit_message;
+	cinfo.err->emit_message = php_jpeg_emit_message;
 
 	if (setjmp (jmpbufw.jmpbuf) != 0) {
 		/* we're here courtesy of longjmp */
@@ -542,19 +539,6 @@ static int CMYKToRGB(int c, int m, int y, int k, int inverted)
  *
  */
 
-/* Different versions of libjpeg use either 'jboolean' or 'boolean', and
-   some platforms define 'boolean', and so forth. Deal with this
-   madness by typedeffing 'safeboolean' to 'boolean' if HAVE_BOOLEAN
-   is already set, because this is the test that libjpeg uses.
-   Otherwise, typedef it to int, because that's what libjpeg does
-   if HAVE_BOOLEAN is not defined. -TBB */
-
-#ifdef HAVE_BOOLEAN
-typedef boolean safeboolean;
-#else
-typedef int safeboolean;
-#endif /* HAVE_BOOLEAN */
-
 /* Expanded data source object for gdIOCtx input */
 
 typedef struct
@@ -563,7 +547,7 @@ typedef struct
 
 	gdIOCtx *infile;		/* source stream */
 	unsigned char *buffer;	/* start of buffer */
-	safeboolean start_of_file;	/* have we gotten any data yet? */
+	boolean start_of_file;	/* have we gotten any data yet? */
 } my_source_mgr;
 
 typedef my_source_mgr *my_src_ptr;
@@ -622,7 +606,7 @@ void init_source (j_decompress_ptr cinfo)
 
 #define END_JPEG_SEQUENCE "\r\n[*]--:END JPEG:--[*]\r\n"
 
-safeboolean fill_input_buffer (j_decompress_ptr cinfo)
+boolean fill_input_buffer (j_decompress_ptr cinfo)
 {
 	my_src_ptr src = (my_src_ptr) cinfo->src;
 	/* 2.0.12: signed size. Thanks to Geert Jansen */
@@ -813,7 +797,7 @@ void init_destination (j_compress_ptr cinfo)
  * write it out when emptying the buffer externally.
  */
 
-safeboolean empty_output_buffer (j_compress_ptr cinfo)
+boolean empty_output_buffer (j_compress_ptr cinfo)
 {
 	my_dest_ptr dest = (my_dest_ptr) cinfo->dest;
 

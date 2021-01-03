@@ -99,6 +99,34 @@ class Response
     }
 
     /**
+     * @param string $name
+     * @param string $value
+     * @return Response
+     */
+    public function expectHeader($name, $value)
+    {
+        $this->checkHeader($name, $value);
+
+        return $this;
+    }
+
+    /**
+     * @param string $errorMessage
+     * @return Response
+     */
+    public function expectError($errorMessage)
+    {
+        $errorData = $this->getErrorData();
+        if ($errorData !== $errorMessage) {
+            $this->error(
+                "The expected error message '$errorMessage' is not equal to returned error '$errorData'"
+            );
+        }
+
+        return $this;
+    }
+
+    /**
      * @param string $contentType
      * @return string|null
      */
@@ -174,7 +202,7 @@ class Response
     {
         // check default headers
         return (
-            $this->checkHeader('X-Powered-By', '|^PHP/7|', true) &&
+            $this->checkHeader('X-Powered-By', '|^PHP/8|', true) &&
             $this->checkHeader('Content-type', '|^' . $contentType . '(;\s?charset=\w+)?|', true)
         );
     }

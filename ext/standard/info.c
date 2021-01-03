@@ -1,7 +1,5 @@
 /*
    +----------------------------------------------------------------------+
-   | PHP Version 7                                                        |
-   +----------------------------------------------------------------------+
    | Copyright (c) The PHP Group                                          |
    +----------------------------------------------------------------------+
    | This source file is subject to version 3.01 of the PHP license,      |
@@ -54,19 +52,19 @@ PHPAPI extern char *php_ini_opened_path;
 PHPAPI extern char *php_ini_scanned_path;
 PHPAPI extern char *php_ini_scanned_files;
 
-static int php_info_print_html_esc(const char *str, size_t len) /* {{{ */
+static ZEND_COLD int php_info_print_html_esc(const char *str, size_t len) /* {{{ */
 {
 	size_t written;
 	zend_string *new_str;
 
-	new_str = php_escape_html_entities((unsigned char *) str, len, 0, ENT_QUOTES, "utf-8");
+	new_str = php_escape_html_entities((const unsigned char *) str, len, 0, ENT_QUOTES, "utf-8");
 	written = php_output_write(ZSTR_VAL(new_str), ZSTR_LEN(new_str));
 	zend_string_free(new_str);
 	return written;
 }
 /* }}} */
 
-static int php_info_printf(const char *fmt, ...) /* {{{ */
+static ZEND_COLD int php_info_printf(const char *fmt, ...) /* {{{ */
 {
 	char *buf;
 	size_t len, written;
@@ -82,13 +80,13 @@ static int php_info_printf(const char *fmt, ...) /* {{{ */
 }
 /* }}} */
 
-static int php_info_print(const char *str) /* {{{ */
+static zend_always_inline int php_info_print(const char *str) /* {{{ */
 {
 	return php_output_write(str, strlen(str));
 }
 /* }}} */
 
-static void php_info_print_stream_hash(const char *name, HashTable *ht) /* {{{ */
+static ZEND_COLD void php_info_print_stream_hash(const char *name, HashTable *ht) /* {{{ */
 {
 	zend_string *key;
 
@@ -131,7 +129,7 @@ static void php_info_print_stream_hash(const char *name, HashTable *ht) /* {{{ *
 }
 /* }}} */
 
-PHPAPI void php_info_print_module(zend_module_entry *zend_module) /* {{{ */
+PHPAPI ZEND_COLD void php_info_print_module(zend_module_entry *zend_module) /* {{{ */
 {
 	if (zend_module->info_func || zend_module->version) {
 		if (!sapi_module.phpinfo_as_text) {
@@ -164,9 +162,8 @@ PHPAPI void php_info_print_module(zend_module_entry *zend_module) /* {{{ */
 }
 /* }}} */
 
-/* {{{ php_print_gpcse_array
- */
-static void php_print_gpcse_array(char *name, uint32_t name_length)
+/* {{{ php_print_gpcse_array */
+static ZEND_COLD void php_print_gpcse_array(char *name, uint32_t name_length)
 {
 	zval *data, *tmp;
 	zend_string *string_key;
@@ -239,9 +236,8 @@ static void php_print_gpcse_array(char *name, uint32_t name_length)
 }
 /* }}} */
 
-/* {{{ php_info_print_style
- */
-void php_info_print_style(void)
+/* {{{ php_info_print_style */
+PHPAPI ZEND_COLD void ZEND_COLD php_info_print_style(void)
 {
 	php_info_printf("<style type=\"text/css\">\n");
 	php_info_print_css();
@@ -249,11 +245,10 @@ void php_info_print_style(void)
 }
 /* }}} */
 
-/* {{{ php_info_html_esc
- */
-PHPAPI zend_string *php_info_html_esc(char *string)
+/* {{{ php_info_html_esc */
+PHPAPI ZEND_COLD zend_string *php_info_html_esc(const char *string)
 {
-	return php_escape_html_entities((unsigned char *) string, strlen(string), 0, ENT_QUOTES, NULL);
+	return php_escape_html_entities((const unsigned char *) string, strlen(string), 0, ENT_QUOTES, NULL);
 }
 /* }}} */
 
@@ -637,8 +632,7 @@ void php_get_windows_cpu(char *buf, int bufsize)
 /* }}}  */
 #endif
 
-/* {{{ php_get_uname
- */
+/* {{{ php_get_uname */
 PHPAPI zend_string *php_get_uname(char mode)
 {
 	char *php_uname;
@@ -730,9 +724,8 @@ PHPAPI zend_string *php_get_uname(char mode)
 }
 /* }}} */
 
-/* {{{ php_print_info_htmlhead
- */
-PHPAPI void php_print_info_htmlhead(void)
+/* {{{ php_print_info_htmlhead */
+PHPAPI ZEND_COLD void php_print_info_htmlhead(void)
 {
 	php_info_print("<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"DTD/xhtml1-transitional.dtd\">\n");
 	php_info_print("<html xmlns=\"http://www.w3.org/1999/xhtml\">");
@@ -746,19 +739,15 @@ PHPAPI void php_print_info_htmlhead(void)
 /* }}} */
 
 /* {{{ module_name_cmp */
-static int module_name_cmp(const void *a, const void *b)
+static int module_name_cmp(Bucket *f, Bucket *s)
 {
-	Bucket *f = (Bucket *) a;
-	Bucket *s = (Bucket *) b;
-
 	return strcasecmp(((zend_module_entry *)Z_PTR(f->val))->name,
 				  ((zend_module_entry *)Z_PTR(s->val))->name);
 }
 /* }}} */
 
-/* {{{ php_print_info
- */
-PHPAPI void php_print_info(int flag)
+/* {{{ php_print_info */
+PHPAPI ZEND_COLD void php_print_info(int flag)
 {
 	char **env, *tmp1, *tmp2;
 	zend_string *php_uname;
@@ -770,7 +759,7 @@ PHPAPI void php_print_info(int flag)
 	}
 
 	if (flag & PHP_INFO_GENERAL) {
-		char *zend_version = get_zend_version();
+		const char *zend_version = get_zend_version();
 		char temp_api[10];
 
 		php_uname = php_get_uname('a');
@@ -803,6 +792,12 @@ PHPAPI void php_print_info(int flag)
 		php_info_print_table_start();
 		php_info_print_table_row(2, "System", ZSTR_VAL(php_uname));
 		php_info_print_table_row(2, "Build Date", __DATE__ " " __TIME__);
+#ifdef PHP_BUILD_SYSTEM
+		php_info_print_table_row(2, "Build System", PHP_BUILD_SYSTEM);
+#endif
+#ifdef PHP_BUILD_PROVIDER
+		php_info_print_table_row(2, "Build Provider", PHP_BUILD_PROVIDER);
+#endif
 #ifdef COMPILER
 		php_info_print_table_row(2, "Compiler", COMPILER);
 #endif
@@ -1045,7 +1040,7 @@ PHPAPI void php_print_info(int flag)
 }
 /* }}} */
 
-PHPAPI void php_info_print_table_start(void) /* {{{ */
+PHPAPI ZEND_COLD void php_info_print_table_start(void) /* {{{ */
 {
 	if (!sapi_module.phpinfo_as_text) {
 		php_info_print("<table>\n");
@@ -1055,7 +1050,7 @@ PHPAPI void php_info_print_table_start(void) /* {{{ */
 }
 /* }}} */
 
-PHPAPI void php_info_print_table_end(void) /* {{{ */
+PHPAPI ZEND_COLD void php_info_print_table_end(void) /* {{{ */
 {
 	if (!sapi_module.phpinfo_as_text) {
 		php_info_print("</table>\n");
@@ -1064,7 +1059,7 @@ PHPAPI void php_info_print_table_end(void) /* {{{ */
 }
 /* }}} */
 
-PHPAPI void php_info_print_box_start(int flag) /* {{{ */
+PHPAPI ZEND_COLD void php_info_print_box_start(int flag) /* {{{ */
 {
 	php_info_print_table_start();
 	if (flag) {
@@ -1081,7 +1076,7 @@ PHPAPI void php_info_print_box_start(int flag) /* {{{ */
 }
 /* }}} */
 
-PHPAPI void php_info_print_box_end(void) /* {{{ */
+PHPAPI ZEND_COLD void php_info_print_box_end(void) /* {{{ */
 {
 	if (!sapi_module.phpinfo_as_text) {
 		php_info_print("</td></tr>\n");
@@ -1090,7 +1085,7 @@ PHPAPI void php_info_print_box_end(void) /* {{{ */
 }
 /* }}} */
 
-PHPAPI void php_info_print_hr(void) /* {{{ */
+PHPAPI ZEND_COLD void php_info_print_hr(void) /* {{{ */
 {
 	if (!sapi_module.phpinfo_as_text) {
 		php_info_print("<hr />\n");
@@ -1100,7 +1095,7 @@ PHPAPI void php_info_print_hr(void) /* {{{ */
 }
 /* }}} */
 
-PHPAPI void php_info_print_table_colspan_header(int num_cols, char *header) /* {{{ */
+PHPAPI ZEND_COLD void php_info_print_table_colspan_header(int num_cols, const char *header) /* {{{ */
 {
 	int spaces;
 
@@ -1113,9 +1108,8 @@ PHPAPI void php_info_print_table_colspan_header(int num_cols, char *header) /* {
 }
 /* }}} */
 
-/* {{{ php_info_print_table_header
- */
-PHPAPI void php_info_print_table_header(int num_cols, ...)
+/* {{{ php_info_print_table_header */
+PHPAPI ZEND_COLD void php_info_print_table_header(int num_cols, ...)
 {
 	int i;
 	va_list row_elements;
@@ -1151,9 +1145,8 @@ PHPAPI void php_info_print_table_header(int num_cols, ...)
 }
 /* }}} */
 
-/* {{{ php_info_print_table_row_internal
- */
-static void php_info_print_table_row_internal(int num_cols,
+/* {{{ php_info_print_table_row_internal */
+static ZEND_COLD void php_info_print_table_row_internal(int num_cols,
 		const char *value_class, va_list row_elements)
 {
 	int i;
@@ -1197,9 +1190,8 @@ static void php_info_print_table_row_internal(int num_cols,
 }
 /* }}} */
 
-/* {{{ php_info_print_table_row
- */
-PHPAPI void php_info_print_table_row(int num_cols, ...)
+/* {{{ php_info_print_table_row */
+PHPAPI ZEND_COLD void php_info_print_table_row(int num_cols, ...)
 {
 	va_list row_elements;
 
@@ -1209,9 +1201,8 @@ PHPAPI void php_info_print_table_row(int num_cols, ...)
 }
 /* }}} */
 
-/* {{{ php_info_print_table_row_ex
- */
-PHPAPI void php_info_print_table_row_ex(int num_cols, const char *value_class,
+/* {{{ php_info_print_table_row_ex */
+PHPAPI ZEND_COLD void php_info_print_table_row_ex(int num_cols, const char *value_class,
 		...)
 {
 	va_list row_elements;
@@ -1222,8 +1213,7 @@ PHPAPI void php_info_print_table_row_ex(int num_cols, const char *value_class,
 }
 /* }}} */
 
-/* {{{ register_phpinfo_constants
- */
+/* {{{ register_phpinfo_constants */
 void register_phpinfo_constants(INIT_FUNC_ARGS)
 {
 	REGISTER_LONG_CONSTANT("INFO_GENERAL", PHP_INFO_GENERAL, CONST_PERSISTENT|CONST_CS);
@@ -1245,8 +1235,7 @@ void register_phpinfo_constants(INIT_FUNC_ARGS)
 }
 /* }}} */
 
-/* {{{ proto void phpinfo([int what])
-   Output a page of useful information about PHP and the current request */
+/* {{{ Output a page of useful information about PHP and the current request */
 PHP_FUNCTION(phpinfo)
 {
 	zend_long flag = PHP_INFO_ALL;
@@ -1266,8 +1255,7 @@ PHP_FUNCTION(phpinfo)
 
 /* }}} */
 
-/* {{{ proto string phpversion([string extension])
-   Return the current PHP version */
+/* {{{ Return the current PHP version */
 PHP_FUNCTION(phpversion)
 {
 	char *ext_name = NULL;
@@ -1275,7 +1263,7 @@ PHP_FUNCTION(phpversion)
 
 	ZEND_PARSE_PARAMETERS_START(0, 1)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_STRING(ext_name, ext_name_len)
+		Z_PARAM_STRING_OR_NULL(ext_name, ext_name_len)
 	ZEND_PARSE_PARAMETERS_END();
 
 	if (!ext_name) {
@@ -1291,8 +1279,7 @@ PHP_FUNCTION(phpversion)
 }
 /* }}} */
 
-/* {{{ proto void phpcredits([int flag])
-   Prints the list of people who've contributed to the PHP project */
+/* {{{ Prints the list of people who've contributed to the PHP project */
 PHP_FUNCTION(phpcredits)
 {
 	zend_long flag = PHP_CREDITS_ALL;
@@ -1307,13 +1294,10 @@ PHP_FUNCTION(phpcredits)
 }
 /* }}} */
 
-/* {{{ proto string php_sapi_name(void)
-   Return the current SAPI module name */
+/* {{{ Return the current SAPI module name */
 PHP_FUNCTION(php_sapi_name)
 {
-	if (zend_parse_parameters_none() == FAILURE) {
-		return;
-	}
+	ZEND_PARSE_PARAMETERS_NONE();
 
 	if (sapi_module.name) {
 		RETURN_STRING(sapi_module.name);
@@ -1324,8 +1308,7 @@ PHP_FUNCTION(php_sapi_name)
 
 /* }}} */
 
-/* {{{ proto string php_uname(void)
-   Return information about the system PHP was built on */
+/* {{{ Return information about the system PHP was built on */
 PHP_FUNCTION(php_uname)
 {
 	char *mode = "a";
@@ -1341,13 +1324,10 @@ PHP_FUNCTION(php_uname)
 
 /* }}} */
 
-/* {{{ proto string php_ini_scanned_files(void)
-   Return comma-separated string of .ini files parsed from the additional ini dir */
+/* {{{ Return comma-separated string of .ini files parsed from the additional ini dir */
 PHP_FUNCTION(php_ini_scanned_files)
 {
-	if (zend_parse_parameters_none() == FAILURE) {
-		return;
-	}
+	ZEND_PARSE_PARAMETERS_NONE();
 
 	if (php_ini_scanned_files) {
 		RETURN_STRING(php_ini_scanned_files);
@@ -1357,13 +1337,10 @@ PHP_FUNCTION(php_ini_scanned_files)
 }
 /* }}} */
 
-/* {{{ proto string php_ini_loaded_file(void)
-   Return the actual loaded ini filename */
+/* {{{ Return the actual loaded ini filename */
 PHP_FUNCTION(php_ini_loaded_file)
 {
-	if (zend_parse_parameters_none() == FAILURE) {
-		return;
-	}
+	ZEND_PARSE_PARAMETERS_NONE();
 
 	if (php_ini_opened_path) {
 		RETURN_STRING(php_ini_opened_path);

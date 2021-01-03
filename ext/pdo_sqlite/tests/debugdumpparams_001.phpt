@@ -7,7 +7,7 @@ if (!extension_loaded('pdo_sqlite')) print 'skip not loaded';
 --FILE--
 <?php
 
-$db = new pdo('sqlite::memory:');
+$db = new PDO('sqlite::memory:');
 
 $x= $db->prepare('select :a, :b, ?');
 $x->bindValue(':a', 1, PDO::PARAM_INT);
@@ -23,15 +23,15 @@ Key: Name: [2] :a
 paramno=-1
 name=[2] ":a"
 is_param=1
-param_type=1
+param_type=2
 Key: Name: [2] :b
 paramno=-1
 name=[2] ":b"
 is_param=1
-param_type=2
+param_type=3
 Key: Position #2:
 paramno=2
 name=[0] ""
 is_param=1
-param_type=2
+param_type=3
 NULL

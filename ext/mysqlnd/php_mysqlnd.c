@@ -1,7 +1,5 @@
 /*
   +----------------------------------------------------------------------+
-  | PHP Version 7                                                        |
-  +----------------------------------------------------------------------+
   | Copyright (c) The PHP Group                                          |
   +----------------------------------------------------------------------+
   | This source file is subject to version 3.01 of the PHP license,      |
@@ -26,16 +24,6 @@
 #include "ext/standard/info.h"
 #include "zend_smart_str.h"
 
-/* {{{ mysqlnd_functions[]
- *
- * Every user visible function must have an entry in mysqlnd_functions[].
- */
-static zend_function_entry mysqlnd_functions[] = {
-	PHP_FE_END
-};
-/* }}} */
-
-
 /* {{{ mysqlnd_minfo_print_hash */
 PHPAPI void
 mysqlnd_minfo_print_hash(zval *values)
@@ -47,29 +35,6 @@ mysqlnd_minfo_print_hash(zval *values)
 		convert_to_string(values_entry);
 		php_info_print_table_row(2, ZSTR_VAL(string_key), Z_STRVAL_P(values_entry));
 	} ZEND_HASH_FOREACH_END();
-}
-/* }}} */
-
-
-/* {{{ mysqlnd_minfo_dump_plugin_stats */
-static int
-mysqlnd_minfo_dump_plugin_stats(zval *el, void * argument)
-{
-	struct st_mysqlnd_plugin_header * plugin_header = (struct st_mysqlnd_plugin_header *)Z_PTR_P(el);
-	if (plugin_header->plugin_stats.values) {
-		char buf[64];
-		zval values;
-		snprintf(buf, sizeof(buf), "%s statistics", plugin_header->plugin_name);
-
-		mysqlnd_fill_stats_hash(plugin_header->plugin_stats.values, plugin_header->plugin_stats.names, &values ZEND_FILE_LINE_CC);
-
-		php_info_print_table_start();
-		php_info_print_table_header(2, buf, "");
-		mysqlnd_minfo_print_hash(&values);
-		php_info_print_table_end();
-		zend_array_destroy(Z_ARR(values));
-	}
-	return ZEND_HASH_APPLY_KEEP;
 }
 /* }}} */
 
@@ -108,8 +73,7 @@ mysqlnd_minfo_dump_api_plugins(smart_str * buffer)
 /* }}} */
 
 
-/* {{{ PHP_MINFO_FUNCTION
- */
+/* {{{ PHP_MINFO_FUNCTION */
 PHP_MINFO_FUNCTION(mysqlnd)
 {
 	char buf[32];
@@ -161,10 +125,6 @@ PHP_MINFO_FUNCTION(mysqlnd)
 	}
 
 	php_info_print_table_end();
-
-
-	/* Print client stats */
-	mysqlnd_plugin_apply_with_argument(mysqlnd_minfo_dump_plugin_stats, NULL);
 }
 /* }}} */
 
@@ -172,8 +132,7 @@ PHP_MINFO_FUNCTION(mysqlnd)
 PHPAPI ZEND_DECLARE_MODULE_GLOBALS(mysqlnd)
 
 
-/* {{{ PHP_GINIT_FUNCTION
- */
+/* {{{ PHP_GINIT_FUNCTION */
 static PHP_GINIT_FUNCTION(mysqlnd)
 {
 #if defined(COMPILE_DL_MYSQLND) && defined(ZTS)
@@ -190,20 +149,12 @@ static PHP_GINIT_FUNCTION(mysqlnd)
 	mysqlnd_globals->net_read_timeout = 31536000;
 	mysqlnd_globals->log_mask = 0;
 	mysqlnd_globals->mempool_default_size = 16000;
-	mysqlnd_globals->debug_emalloc_fail_threshold = -1;
-	mysqlnd_globals->debug_ecalloc_fail_threshold = -1;
-	mysqlnd_globals->debug_erealloc_fail_threshold = -1;
-	mysqlnd_globals->debug_malloc_fail_threshold = -1;
-	mysqlnd_globals->debug_calloc_fail_threshold = -1;
-	mysqlnd_globals->debug_realloc_fail_threshold = -1;
 	mysqlnd_globals->sha256_server_public_key = NULL;
-	mysqlnd_globals->fetch_data_copy = FALSE;
 }
 /* }}} */
 
 
-/* {{{ PHP_INI_MH
- */
+/* {{{ PHP_INI_MH */
 static PHP_INI_MH(OnUpdateNetCmdBufferSize)
 {
 	zend_long long_value;
@@ -219,8 +170,7 @@ static PHP_INI_MH(OnUpdateNetCmdBufferSize)
 /* }}} */
 
 
-/* {{{ PHP_INI_BEGIN
-*/
+/* {{{ PHP_INI_BEGIN */
 PHP_INI_BEGIN()
 	STD_PHP_INI_BOOLEAN("mysqlnd.collect_statistics",	"1", 	PHP_INI_ALL,	OnUpdateBool,	collect_statistics, zend_mysqlnd_globals, mysqlnd_globals)
 	STD_PHP_INI_BOOLEAN("mysqlnd.collect_memory_statistics","0",PHP_INI_SYSTEM, OnUpdateBool,	collect_memory_statistics, zend_mysqlnd_globals, mysqlnd_globals)
@@ -232,22 +182,11 @@ PHP_INI_BEGIN()
 	STD_PHP_INI_ENTRY("mysqlnd.log_mask",				"0", 	PHP_INI_ALL,	OnUpdateLong,	log_mask, zend_mysqlnd_globals, mysqlnd_globals)
 	STD_PHP_INI_ENTRY("mysqlnd.mempool_default_size","16000",   PHP_INI_ALL,	OnUpdateLong,	mempool_default_size,	zend_mysqlnd_globals,		mysqlnd_globals)
 	STD_PHP_INI_ENTRY("mysqlnd.sha256_server_public_key",NULL, 	PHP_INI_PERDIR, OnUpdateString,	sha256_server_public_key, zend_mysqlnd_globals, mysqlnd_globals)
-	STD_PHP_INI_BOOLEAN("mysqlnd.fetch_data_copy",	"0", 		PHP_INI_ALL,	OnUpdateBool,	fetch_data_copy, zend_mysqlnd_globals, mysqlnd_globals)
-#if PHP_DEBUG
-	STD_PHP_INI_ENTRY("mysqlnd.debug_emalloc_fail_threshold","-1",   PHP_INI_SYSTEM,	OnUpdateLong,	debug_emalloc_fail_threshold,	zend_mysqlnd_globals,		mysqlnd_globals)
-	STD_PHP_INI_ENTRY("mysqlnd.debug_ecalloc_fail_threshold","-1",   PHP_INI_SYSTEM,	OnUpdateLong,	debug_ecalloc_fail_threshold,	zend_mysqlnd_globals,		mysqlnd_globals)
-	STD_PHP_INI_ENTRY("mysqlnd.debug_erealloc_fail_threshold","-1",   PHP_INI_SYSTEM,	OnUpdateLong,	debug_erealloc_fail_threshold,	zend_mysqlnd_globals,		mysqlnd_globals)
-
-	STD_PHP_INI_ENTRY("mysqlnd.debug_malloc_fail_threshold","-1",   PHP_INI_SYSTEM,	OnUpdateLong,	debug_malloc_fail_threshold,	zend_mysqlnd_globals,		mysqlnd_globals)
-	STD_PHP_INI_ENTRY("mysqlnd.debug_calloc_fail_threshold","-1",   PHP_INI_SYSTEM,	OnUpdateLong,	debug_calloc_fail_threshold,	zend_mysqlnd_globals,		mysqlnd_globals)
-	STD_PHP_INI_ENTRY("mysqlnd.debug_realloc_fail_threshold","-1",   PHP_INI_SYSTEM,	OnUpdateLong,	debug_realloc_fail_threshold,	zend_mysqlnd_globals,		mysqlnd_globals)
-#endif
 PHP_INI_END()
 /* }}} */
 
 
-/* {{{ PHP_MINIT_FUNCTION
- */
+/* {{{ PHP_MINIT_FUNCTION */
 static PHP_MINIT_FUNCTION(mysqlnd)
 {
 	REGISTER_INI_ENTRIES();
@@ -258,8 +197,7 @@ static PHP_MINIT_FUNCTION(mysqlnd)
 /* }}} */
 
 
-/* {{{ PHP_MSHUTDOWN_FUNCTION
- */
+/* {{{ PHP_MSHUTDOWN_FUNCTION */
 static PHP_MSHUTDOWN_FUNCTION(mysqlnd)
 {
 	mysqlnd_library_end();
@@ -271,8 +209,7 @@ static PHP_MSHUTDOWN_FUNCTION(mysqlnd)
 
 
 #if PHP_DEBUG
-/* {{{ PHP_RINIT_FUNCTION
- */
+/* {{{ PHP_RINIT_FUNCTION */
 static PHP_RINIT_FUNCTION(mysqlnd)
 {
 	if (MYSQLND_G(debug)) {
@@ -297,8 +234,7 @@ static PHP_RINIT_FUNCTION(mysqlnd)
 
 
 #if PHP_DEBUG
-/* {{{ PHP_RSHUTDOWN_FUNCTION
- */
+/* {{{ PHP_RSHUTDOWN_FUNCTION */
 static PHP_RSHUTDOWN_FUNCTION(mysqlnd)
 {
 	MYSQLND_DEBUG * dbg = MYSQLND_G(dbg);
@@ -325,14 +261,13 @@ static const zend_module_dep mysqlnd_deps[] = {
 	ZEND_MOD_END
 };
 
-/* {{{ mysqlnd_module_entry
- */
+/* {{{ mysqlnd_module_entry */
 zend_module_entry mysqlnd_module_entry = {
 	STANDARD_MODULE_HEADER_EX,
 	NULL,
 	mysqlnd_deps,
 	"mysqlnd",
-	mysqlnd_functions,
+	NULL,
 	PHP_MINIT(mysqlnd),
 	PHP_MSHUTDOWN(mysqlnd),
 #if PHP_DEBUG

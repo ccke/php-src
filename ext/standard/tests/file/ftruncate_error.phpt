@@ -2,11 +2,6 @@
 Test ftruncate() function : error conditions
 --FILE--
 <?php
-/*
- Prototype: bool ftruncate ( resource $handle, int $size );
- Description: truncates a file to a given length
-*/
-
 echo "*** Testing ftruncate() : error conditions ***\n";
 
 $filename = __DIR__."/ftruncate_error.tmp";
@@ -20,7 +15,11 @@ echo "-- Testing ftruncate() with closed/unset file handle --\n";
 
 // ftruncate on close file handle
 fclose($file_handle);
-var_dump( ftruncate($file_handle,10) );
+try {
+    var_dump( ftruncate($file_handle,10) );
+} catch (TypeError $e) {
+    echo $e->getMessage(), "\n";
+}
 // check the first size
 var_dump( filesize($filename) );
 
@@ -31,13 +30,11 @@ echo "Done\n";
 $filename = __DIR__."/ftruncate_error.tmp";
 unlink( $filename );
 ?>
---EXPECTF--
+--EXPECT--
 *** Testing ftruncate() : error conditions ***
 
  Initial file size = 36
 -- Testing ftruncate() with closed/unset file handle --
-
-Warning: ftruncate(): supplied resource is not a valid stream resource in %s on line %d
-bool(false)
+ftruncate(): supplied resource is not a valid stream resource
 int(36)
 Done

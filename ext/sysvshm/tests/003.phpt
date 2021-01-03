@@ -13,8 +13,17 @@ $key = ftok(__DIR__."/003.phpt", 'q');
 $s = shm_attach($key);
 
 var_dump(shm_detach($s));
-var_dump(shm_detach($s));
-shm_remove($s);
+try {
+    shm_detach($s);
+} catch (Error $exception) {
+    echo $exception->getMessage() . "\n";
+}
+
+try {
+    shm_remove($s);
+} catch (Error $exception) {
+    echo $exception->getMessage() . "\n";
+}
 
 echo "Done\n";
 ?>
@@ -26,11 +35,8 @@ $s = shm_attach($key);
 shm_remove($s);
 
 ?>
---EXPECTF--
+--EXPECT--
 bool(true)
-
-Warning: shm_detach(): supplied resource is not a valid sysvshm resource in %s003.php on line %d
-bool(false)
-
-Warning: shm_remove(): supplied resource is not a valid sysvshm resource in %s003.php on line %d
+Shared memory block has already been destroyed
+Shared memory block has already been destroyed
 Done

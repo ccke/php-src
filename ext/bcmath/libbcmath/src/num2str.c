@@ -11,7 +11,7 @@
     This library is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-    Lesser General Public License for more details.  (COPYING.LIB)
+    Lesser General Public License for more details.  (LICENSE)
 
     You should have received a copy of the GNU Lesser General Public
     License along with this library; if not, write to:
@@ -55,7 +55,6 @@ zend_string
 		str = zend_string_alloc(num->n_len + scale + signch + 1, 0);
 	else
 		str = zend_string_alloc(num->n_len + signch, 0);
-	if (str == NULL) bc_out_of_memory();
 
 	/* The negative sign if needed. */
 	sptr = ZSTR_VAL(str);

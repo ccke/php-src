@@ -1,7 +1,5 @@
 /*
    +----------------------------------------------------------------------+
-   | PHP Version 7                                                        |
-   +----------------------------------------------------------------------+
    | Copyright (c) The PHP Group                                          |
    +----------------------------------------------------------------------+
    | This source file is subject to version 3.01 of the PHP license,      |
@@ -55,6 +53,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <fcntl.h>
 #include <limits.h>
 #include <sys/stat.h>
+#include <sched.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -115,18 +114,26 @@ typedef struct lsapi_MD5Context lsapi_MD5_CTX;
 #define LSAPI_ST_REQ_BODY       2
 #define LSAPI_ST_RESP_HEADER    4
 #define LSAPI_ST_RESP_BODY      8
+#define LSAPI_ST_BACKGROUND     16
 
 #define LSAPI_RESP_BUF_SIZE     8192
 #define LSAPI_INIT_RESP_HEADER_LEN 4096
 
-typedef struct _lsapi_child_status
+enum
+{
+    LSAPI_STATE_IDLE,
+    LSAPI_STATE_CONNECTED,
+    LSAPI_STATE_ACCEPTING,
+};
+
+typedef struct lsapi_child_status
 {
     int     m_pid;
     long    m_tmStart;
 
     volatile short   m_iKillSent;
     volatile char    m_inProcess;
-    volatile char    m_connected;
+    volatile char    m_state;
     volatile int     m_iReqCounter;
 
     volatile long    m_tmWaitBegin;
@@ -158,6 +165,9 @@ static int s_max_busy_workers = -1;
 static char *s_stderr_log_path = NULL;
 static int s_stderr_is_pipe = 0;
 static int s_ignore_pid = -1;
+static size_t s_total_pages = 1;
+static size_t s_min_avail_pages = 256 * 1024;
+static size_t *s_avail_pages = &s_total_pages;
 
 LSAPI_Request g_req =
 { .m_fdListen = -1, .m_fd = -1 };
@@ -417,7 +427,7 @@ static void lsapi_close_connection(LSAPI_Request *pReq)
     if (s_busy_workers)
         __sync_fetch_and_sub(s_busy_workers, 1);
     if (s_worker_status)
-        s_worker_status->m_connected = 0;
+        __sync_lock_test_and_set(&s_worker_status->m_state, LSAPI_STATE_IDLE);
 }
 
 
@@ -780,10 +790,10 @@ static int lsapi_load_lve_lib(void)
                 int uid = getuid();
                 if ( uid )
                 {
-                    setreuid( s_uid, uid );
+                    if (setreuid( s_uid, uid )) {};
                     if ( !(*fp_lve_is_available)() )
                         s_enable_lve = 0;
-                    setreuid( uid, s_uid );
+                    if (setreuid( uid, s_uid )) {};
                 }
             }
         }
@@ -888,7 +898,7 @@ static int LSAPI_perror_r( LSAPI_Request * pReq, const char * pErr1, const char 
     if ( pReq )
         LSAPI_Write_Stderr_r( pReq, achError, n );
     else
-        write( STDERR_FILENO, achError, n );
+        if (write( STDERR_FILENO, achError, n )) {};
     return 0;
 }
 
@@ -927,7 +937,7 @@ static int lsapi_enterLVE( LSAPI_Request * pReq, uid_t uid )
         ret = (*fp_lve_enter)(s_lve, uid, -1, -1, &cookie);
         if ( ret < 0 )
         {
-            lsapi_log("enter LVE (%d) : ressult: %d !\n", uid, ret );
+            lsapi_log("enter LVE (%d) : result: %d !\n", uid, ret );
             LSAPI_perror_r(pReq, "LSAPI: lve_enter() failure, reached resource limit.", NULL );
             lsapi_lve_error( pReq );
             return -1;
@@ -947,7 +957,7 @@ static int lsapi_jailLVE( LSAPI_Request * pReq, uid_t uid, struct passwd * pw )
     ret = (*fp_lve_jail)( pw, error_msg );
     if ( ret < 0 )
     {
-        lsapi_log("LSAPI: LVE jail(%d) ressult: %d, error: %s !\n",
+        lsapi_log("LSAPI: LVE jail(%d) result: %d, error: %s !\n",
                   uid, ret, error_msg );
         LSAPI_perror_r( pReq, "LSAPI: jail() failure.", NULL );
         return -1;
@@ -1560,7 +1570,8 @@ int LSAPI_Accept_r( LSAPI_Request * pReq )
                 else
                 {
                     if (s_worker_status)
-                        s_worker_status->m_connected = 1;
+                        __sync_lock_test_and_set(&s_worker_status->m_state,
+                                                 LSAPI_STATE_CONNECTED);
                     if (s_busy_workers)
                         __sync_fetch_and_add(s_busy_workers, 1);
                     lsapi_set_nblock( pReq->m_fd , 0 );
@@ -1589,8 +1600,11 @@ int LSAPI_Accept_r( LSAPI_Request * pReq )
 }
 
 
-static struct lsapi_packet_header   finish = {'L', 'S',
-                LSAPI_RESP_END, LSAPI_ENDIAN, {LSAPI_PACKET_HEADER_LEN} };
+static struct lsapi_packet_header   finish_close[2] =
+{
+    {'L', 'S', LSAPI_RESP_END, LSAPI_ENDIAN, {LSAPI_PACKET_HEADER_LEN} },
+    {'L', 'S', LSAPI_CONN_CLOSE, LSAPI_ENDIAN, {LSAPI_PACKET_HEADER_LEN} }
+};
 
 
 int LSAPI_Finish_r( LSAPI_Request * pReq )
@@ -1611,13 +1625,48 @@ int LSAPI_Finish_r( LSAPI_Request * pReq )
                 Flush_RespBuf_r( pReq );
             }
 
-            pReq->m_pIovecCur->iov_base = (void *)&finish;
+            pReq->m_pIovecCur->iov_base = (void *)finish_close;
             pReq->m_pIovecCur->iov_len  = LSAPI_PACKET_HEADER_LEN;
             pReq->m_totalLen += LSAPI_PACKET_HEADER_LEN;
             ++pReq->m_pIovecCur;
             LSAPI_Flush_r( pReq );
         }
         LSAPI_Reset_r( pReq );
+    }
+    return 0;
+}
+
+
+int LSAPI_End_Response_r(LSAPI_Request * pReq)
+{
+    if (!pReq)
+        return -1;
+    if (pReq->m_reqState & LSAPI_ST_BACKGROUND)
+        return 0;
+    if (pReq->m_reqState)
+    {
+        if ( pReq->m_fd != -1 )
+        {
+            if ( pReq->m_reqState & LSAPI_ST_RESP_HEADER )
+            {
+                if ( pReq->m_pRespHeaderBufPos <= pReq->m_pRespHeaderBuf )
+                    return 0;
+
+                LSAPI_FinalizeRespHeaders_r( pReq );
+            }
+            if ( pReq->m_pRespBufPos != pReq->m_pRespBuf )
+            {
+                Flush_RespBuf_r( pReq );
+            }
+
+            pReq->m_pIovecCur->iov_base = (void *)finish_close;
+            pReq->m_pIovecCur->iov_len  = LSAPI_PACKET_HEADER_LEN << 1;
+            pReq->m_totalLen += LSAPI_PACKET_HEADER_LEN << 1;
+            ++pReq->m_pIovecCur;
+            LSAPI_Flush_r( pReq );
+            lsapi_close_connection(pReq);
+        }
+        pReq->m_reqState |= LSAPI_ST_BACKGROUND;
     }
     return 0;
 }
@@ -1808,7 +1857,11 @@ ssize_t LSAPI_Write_r( LSAPI_Request * pReq, const char * pBuf, size_t len )
     ssize_t packetLen;
     int skip = 0;
 
-    if ( !pReq || !pBuf || (pReq->m_fd == -1) )
+    if (!pReq || !pBuf)
+        return -1;
+    if (pReq->m_reqState & LSAPI_ST_BACKGROUND)
+        return len;
+    if (pReq->m_fd == -1)
         return -1;
     if ( pReq->m_reqState & LSAPI_ST_RESP_HEADER )
     {
@@ -2569,7 +2622,8 @@ int LSAPI_ParseSockAddr( const char * pBind, struct sockaddr * pAddr )
     while( isspace( *pBind ) )
         ++pBind;
 
-    strncpy( achAddr, pBind, 256 );
+    strncpy(achAddr, pBind, 255);
+    achAddr[255] = 0;
 
     switch( *p )
     {
@@ -2710,6 +2764,9 @@ int LSAPI_Init_Prefork_Server( int max_children, fn_select_t fp, int avoidFork )
     s_ppid = getppid();
     s_pid = getpid();
     setpgid( s_pid, s_pid );
+#if defined(linux) || defined(__linux) || defined(__linux__) || defined(__gnu_linux__)
+    s_total_pages = sysconf(_SC_PHYS_PAGES);
+#endif
     g_prefork_server->m_iAvoidFork = avoidFork;
     g_prefork_server->m_iMaxChildren = max_children;
 
@@ -2719,6 +2776,9 @@ int LSAPI_Init_Prefork_Server( int max_children, fn_select_t fp, int avoidFork )
         g_prefork_server->m_iMaxIdleChildren = 1;
     g_prefork_server->m_iChildrenMaxIdleTime = 300;
     g_prefork_server->m_iMaxReqProcessTime = 3600;
+
+    setsid();
+
     return 0;
 }
 
@@ -2774,6 +2834,11 @@ static lsapi_child_status * find_child_status( int pid )
     {
         if ( pStatus->m_pid == pid )
         {
+            if (pid == 0)
+            {
+                memset(pStatus, 0, sizeof( *pStatus ) );
+                pStatus->m_pid = -1;
+            }
             if ( pStatus + 1 > g_prefork_server->m_pChildrenStatusCur )
                 g_prefork_server->m_pChildrenStatusCur = pStatus + 1;
             return pStatus;
@@ -2844,11 +2909,19 @@ static void lsapi_sigchild( int signal )
         child_status = find_child_status( pid );
         if ( child_status )
         {
-            if (child_status->m_connected)
+            if (__sync_bool_compare_and_swap(&child_status->m_state,
+                                             LSAPI_STATE_CONNECTED,
+                                             LSAPI_STATE_IDLE))
             {
                 if (s_busy_workers)
                     __sync_fetch_and_sub(s_busy_workers, 1);
-                child_status->m_connected = 0;
+            }
+            else if (__sync_bool_compare_and_swap(&child_status->m_state,
+                                                  LSAPI_STATE_ACCEPTING,
+                                                  LSAPI_STATE_IDLE))
+            {
+                if (s_accepting_workers)
+                    __sync_fetch_and_sub(s_accepting_workers, 1);
             }
             child_status->m_pid = 0;
             --g_prefork_server->m_iCurChildren;
@@ -2864,7 +2937,10 @@ static void lsapi_sigchild( int signal )
 static int lsapi_init_children_status(void)
 {
     int size = 4096;
-    int max_children = g_prefork_server->m_iMaxChildren
+    int max_children;
+    if (g_prefork_server->m_pChildrenStatus)
+        return 0;
+    max_children = g_prefork_server->m_iMaxChildren
                         + g_prefork_server->m_iExtraChildren;
 
     char * pBuf;
@@ -2884,6 +2960,9 @@ static int lsapi_init_children_status(void)
     s_busy_workers = (int *)g_prefork_server->m_pChildrenStatusEnd;
     s_accepting_workers = s_busy_workers + 1;
     s_global_counter = s_accepting_workers + 1;
+    s_avail_pages = (size_t *)(s_global_counter + 1);
+
+    setsid();
     return 0;
 }
 
@@ -3023,6 +3102,17 @@ void set_skip_write()
 {   s_skip_write = 1;   }
 
 
+int is_enough_free_mem()
+{
+#if defined(linux) || defined(__linux) || defined(__linux__) || defined(__gnu_linux__)
+    //minimum 1GB or 10% available free memory
+    return (*s_avail_pages > s_min_avail_pages
+            || (*s_avail_pages * 10) / s_total_pages > 0);
+#endif
+    return 1;
+}
+
+
 static int lsapi_prefork_server_accept( lsapi_prefork_server * pServer,
                                         LSAPI_Request * pReq )
 {
@@ -3041,8 +3131,6 @@ static int lsapi_prefork_server_accept( lsapi_prefork_server * pServer,
     sigset_t orig_mask;
 
     lsapi_init_children_status();
-
-    setsid();
 
     act.sa_flags = 0;
     act.sa_handler = lsapi_sigchild;
@@ -3065,7 +3153,7 @@ static int lsapi_prefork_server_accept( lsapi_prefork_server * pServer,
         perror( "Can't set signals" );
         return -1;
     }
-    s_stop = 0;
+
     while( !s_stop )
     {
         if (s_proc_group_timer_cb != NULL) {
@@ -3092,6 +3180,9 @@ static int lsapi_prefork_server_accept( lsapi_prefork_server * pServer,
             }
         }
 
+#if defined(linux) || defined(__linux) || defined(__linux__) || defined(__gnu_linux__)
+        *s_avail_pages = sysconf(_SC_AVPHYS_PAGES);
+#endif
         FD_ZERO( &readfds );
         FD_SET( pServer->m_fd, &readfds );
         timeout.tv_sec = 1;
@@ -3099,11 +3190,15 @@ static int lsapi_prefork_server_accept( lsapi_prefork_server * pServer,
         ret = (*g_fnSelect)(pServer->m_fd+1, &readfds, NULL, NULL, &timeout);
         if (ret == 1 )
         {
-            if (pServer->m_iCurChildren >= pServer->m_iMaxChildren
-                && s_accepting_workers
-                && (ret = __sync_add_and_fetch(s_accepting_workers, 0)) > 0)
+            int accepting = 0;
+            if (s_accepting_workers)
+                accepting = __sync_add_and_fetch(s_accepting_workers, 0);
+
+            if (pServer->m_iCurChildren > 0 && accepting > 0)
             {
-                usleep( 200 );
+                usleep(400);
+                while(accepting-- > 0)
+                    sched_yield();
                 continue;
             }
         }
@@ -3136,8 +3231,6 @@ static int lsapi_prefork_server_accept( lsapi_prefork_server * pServer,
         {
             wait_secs = 0;
             child_status = find_child_status( 0 );
-            if ( child_status )
-                memset( child_status, 0, sizeof( *child_status ) );
 
             sigemptyset( &mask );
             sigaddset( &mask, SIGCHLD );
@@ -3164,14 +3257,17 @@ static int lsapi_prefork_server_accept( lsapi_prefork_server * pServer,
                 if (pthread_atfork_func)
                     (*pthread_atfork_func)(NULL, NULL, set_skip_write);
 
-                s_worker_status->m_connected = 1;
+                __sync_lock_test_and_set(&s_worker_status->m_state,
+                                         LSAPI_STATE_CONNECTED);
                 if (s_busy_workers)
                     __sync_add_and_fetch(s_busy_workers, 1);
                 lsapi_set_nblock( pReq->m_fd, 0 );
                 //keep it open if busy_count is used.
-                if (s_busy_workers && s_uid != 0)
+                if (s_busy_workers
+                    && *s_busy_workers > (pServer->m_iMaxChildren >> 1))
                     s_keepListener = 1;
-                else if ( pReq->m_fdListen != -1 )
+                if ((s_uid == 0 || !s_keepListener || !is_enough_free_mem())
+                    && pReq->m_fdListen != -1 )
                 {
                     close( pReq->m_fdListen );
                     pReq->m_fdListen = -1;
@@ -3223,6 +3319,210 @@ static int lsapi_prefork_server_accept( lsapi_prefork_server * pServer,
     //lsapi_all_children_must_die();  /* Sorry, children ;-) */
     return -1;
 
+}
+
+
+static struct sigaction old_term, old_quit, old_int,
+                    old_usr1, old_child;
+
+
+int LSAPI_Postfork_Child(LSAPI_Request * pReq)
+{
+    int max_children = g_prefork_server->m_iMaxChildren;
+    s_pid = getpid();
+    __sync_lock_test_and_set(&pReq->child_status->m_pid, s_pid);
+    s_worker_status = pReq->child_status;
+
+    setsid();
+    g_prefork_server = NULL;
+    s_ppid = getppid();
+    s_req_processed = 0;
+    s_proc_group_timer_cb = NULL;
+
+    if (pthread_atfork_func)
+        (*pthread_atfork_func)(NULL, NULL, set_skip_write);
+
+    __sync_lock_test_and_set(&s_worker_status->m_state,
+                                LSAPI_STATE_CONNECTED);
+    if (s_busy_workers)
+        __sync_add_and_fetch(s_busy_workers, 1);
+    lsapi_set_nblock( pReq->m_fd, 0 );
+    //keep it open if busy_count is used.
+    if (s_busy_workers
+        && *s_busy_workers > (max_children >> 1))
+        s_keepListener = 1;
+    if ((s_uid == 0 || !s_keepListener || !is_enough_free_mem())
+        && pReq->m_fdListen != -1 )
+    {
+        close(pReq->m_fdListen);
+        pReq->m_fdListen = -1;
+    }
+
+    //init_conn_key( pReq->m_fd );
+    lsapi_notify_pid(pReq->m_fd);
+    s_notified_pid = 1;
+    //if ( s_accept_notify )
+    //    return notify_req_received( pReq->m_fd );
+    return 0;
+}
+
+
+int LSAPI_Postfork_Parent(LSAPI_Request * pReq)
+{
+    ++g_prefork_server->m_iCurChildren;
+    if (pReq->child_status)
+    {
+        time_t curTime = time( NULL );
+        pReq->child_status->m_tmWaitBegin = curTime;
+        pReq->child_status->m_tmStart = curTime;
+    }
+    close(pReq->m_fd);
+    pReq->m_fd = -1;
+    return 0;
+}
+
+
+int LSAPI_Accept_Before_Fork(LSAPI_Request * pReq)
+{
+    time_t          lastTime = 0;
+    time_t          curTime = 0;
+    fd_set          readfds;
+    struct timeval  timeout;
+    int             wait_secs = 0;
+    int             ret = 0;
+
+    lsapi_prefork_server * pServer = g_prefork_server;
+
+    struct sigaction act;
+
+    lsapi_init_children_status();
+
+    act.sa_flags = 0;
+    act.sa_handler = lsapi_sigchild;
+    sigemptyset(&(act.sa_mask));
+    if (sigaction(SIGCHLD, &act, &old_child))
+    {
+        perror( "Can't set signal handler for SIGCHILD" );
+        return -1;
+    }
+
+    /* Set up handler to kill children upon exit */
+    act.sa_flags = 0;
+    act.sa_handler = lsapi_cleanup;
+    sigemptyset(&(act.sa_mask));
+    if (sigaction(SIGTERM, &act, &old_term) ||
+        sigaction(SIGINT,  &act, &old_int ) ||
+        sigaction(SIGUSR1, &act, &old_usr1) ||
+        sigaction(SIGQUIT, &act, &old_quit))
+    {
+        perror( "Can't set signals" );
+        return -1;
+    }
+    s_stop = 0;
+    pReq->m_reqState = 0;
+
+    while(!s_stop)
+    {
+        if (s_proc_group_timer_cb != NULL) {
+            s_proc_group_timer_cb(&s_ignore_pid);
+        }
+
+        curTime = time(NULL);
+        if (curTime != lastTime)
+        {
+            lastTime = curTime;
+            if (lsapi_parent_dead())
+                break;
+            lsapi_check_child_status(curTime);
+            if (pServer->m_iServerMaxIdle)
+            {
+                if (pServer->m_iCurChildren <= 0)
+                {
+                    ++wait_secs;
+                    if ( wait_secs > pServer->m_iServerMaxIdle )
+                        return -1;
+                }
+                else
+                    wait_secs = 0;
+            }
+        }
+
+#if defined(linux) || defined(__linux) || defined(__linux__) || defined(__gnu_linux__)
+        *s_avail_pages = sysconf(_SC_AVPHYS_PAGES);
+//        lsapi_log("Memory total: %zd, free: %zd, free %%%zd\n",
+//                  s_total_pages, *s_avail_pages, *s_avail_pages * 100 / s_total_pages);
+
+#endif
+        FD_ZERO(&readfds);
+        FD_SET(pServer->m_fd, &readfds);
+        timeout.tv_sec = 1;
+        timeout.tv_usec = 0;
+        ret = (*g_fnSelect)(pServer->m_fd+1, &readfds, NULL, NULL, &timeout);
+        if (ret == 1 )
+        {
+            int accepting = 0;
+            if (s_accepting_workers)
+                accepting = __sync_add_and_fetch(s_accepting_workers, 0);
+
+            if (pServer->m_iCurChildren > 0
+                && accepting > 0)
+            {
+                usleep( 400);
+                while(accepting-- > 0)
+                    sched_yield();
+                continue;
+            }
+        }
+        else if (ret == -1)
+        {
+            if (errno == EINTR)
+                continue;
+            /* perror( "select()" ); */
+            break;
+        }
+        else
+        {
+            continue;
+        }
+
+        if (pServer->m_iCurChildren >=
+            pServer->m_iMaxChildren + pServer->m_iExtraChildren)
+        {
+            lsapi_log("Reached max children process limit: %d, extra: %d,"
+                     " current: %d, busy: %d, please increase LSAPI_CHILDREN.\n",
+                     pServer->m_iMaxChildren, pServer->m_iExtraChildren,
+                     pServer->m_iCurChildren,
+                     s_busy_workers ? *s_busy_workers : -1);
+            usleep(100000);
+            continue;
+        }
+
+        pReq->m_fd = lsapi_accept(pServer->m_fd);
+        if (pReq->m_fd != -1)
+        {
+            wait_secs = 0;
+            pReq->child_status = find_child_status(0);
+
+            ret = 0;
+            break;
+        }
+        else
+        {
+            if ((errno == EINTR) || (errno == EAGAIN))
+                continue;
+            perror( "accept() failed" );
+            ret = -1;
+            break;
+        }
+    }
+
+    sigaction(SIGCHLD, &old_child, 0);
+    sigaction(SIGTERM, &old_term, 0);
+    sigaction(SIGQUIT, &old_quit, 0);
+    sigaction(SIGINT,  &old_int,  0);
+    sigaction(SIGUSR1, &old_usr1, 0);
+
+    return ret;
 }
 
 
@@ -3297,6 +3597,9 @@ int LSAPI_Prefork_Accept_r( LSAPI_Request * pReq )
             timeout.tv_usec = 0;
             if (fd == pReq->m_fdListen)
             {
+                if (s_worker_status)
+                    __sync_lock_test_and_set(&s_worker_status->m_state,
+                                             LSAPI_STATE_ACCEPTING);
                 if (s_accepting_workers)
                     __sync_fetch_and_add(s_accepting_workers, 1);
             }
@@ -3305,6 +3608,9 @@ int LSAPI_Prefork_Accept_r( LSAPI_Request * pReq )
             {
                 if (s_accepting_workers)
                     __sync_fetch_and_sub(s_accepting_workers, 1);
+                if (s_worker_status)
+                    __sync_lock_test_and_set(&s_worker_status->m_state,
+                                             LSAPI_STATE_IDLE);
             }
 
             if ( ret == 0 )
@@ -3312,7 +3618,8 @@ int LSAPI_Prefork_Accept_r( LSAPI_Request * pReq )
                 if ( s_worker_status )
                 {
                     s_worker_status->m_inProcess = 0;
-                    if (fd == pReq->m_fdListen)
+                    if (fd == pReq->m_fdListen
+                        && (s_keepListener != 2 || !is_enough_free_mem()))
                         return -1;
                 }
                 ++wait_secs;
@@ -3339,7 +3646,8 @@ int LSAPI_Prefork_Accept_r( LSAPI_Request * pReq )
                     if ( pReq->m_fd != -1 )
                     {
                         if (s_worker_status)
-                            s_worker_status->m_connected = 1;
+                            __sync_lock_test_and_set(&s_worker_status->m_state,
+                                                     LSAPI_STATE_CONNECTED);
                         if (s_busy_workers)
                             __sync_fetch_and_add(s_busy_workers, 1);
 
@@ -3347,7 +3655,7 @@ int LSAPI_Prefork_Accept_r( LSAPI_Request * pReq )
 
                         lsapi_set_nblock( fd, 0 );
                         //init_conn_key( pReq->m_fd );
-                        if ( !s_keepListener )
+                        if (!s_keepListener)
                         {
                             close( pReq->m_fdListen );
                             pReq->m_fdListen = -1;
@@ -3613,6 +3921,7 @@ static int lsapi_reopen_stderr(const char *p)
 int LSAPI_Init_Env_Parameters( fn_select_t fp )
 {
     const char *p;
+    char ch;
     int n;
     int avoidFork = 0;
 
@@ -3634,10 +3943,28 @@ int LSAPI_Init_Env_Parameters( fn_select_t fp )
             LSAPI_Set_Max_Reqs( n );
     }
 
+    p = getenv( "LSAPI_KEEP_LISTEN" );
+    if ( p )
+    {
+        n = atoi( p );
+        s_keepListener = n;
+    }
+
     p = getenv( "LSAPI_AVOID_FORK" );
     if ( p )
     {
         avoidFork = atoi( p );
+        if (avoidFork)
+        {
+            s_keepListener = 2;
+            ch = *(p + strlen(p) - 1);
+            if (  ch == 'G' || ch == 'g' )
+                avoidFork *= 1024 * 1024 * 1024;
+            else if (  ch == 'M' || ch == 'm' )
+                avoidFork *= 1024 * 1024;
+            if (avoidFork >= 1024 * 10240)
+                s_min_avail_pages = avoidFork / 4096;
+        }
     }
 
     p = getenv( "LSAPI_ACCEPT_NOTIFY" );
@@ -3672,14 +3999,6 @@ int LSAPI_Init_Env_Parameters( fn_select_t fp )
         LSAPI_Set_Max_Idle( n );
     }
 
-    p = getenv( "LSAPI_KEEP_LISTEN" );
-    if ( p )
-    {
-        n = atoi( p );
-        s_keepListener = n;
-    }
-
-
     if ( LSAPI_Is_Listen() )
     {
         n = 0;
@@ -3690,7 +4009,7 @@ int LSAPI_Init_Env_Parameters( fn_select_t fp )
             n = atoi( p );
         if ( n > 1 )
         {
-            LSAPI_Init_Prefork_Server( n, fp, avoidFork );
+            LSAPI_Init_Prefork_Server( n, fp, avoidFork != 0 );
             LSAPI_Set_Server_fd( g_req.m_fdListen );
         }
 

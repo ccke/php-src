@@ -1,7 +1,5 @@
 /*
    +----------------------------------------------------------------------+
-   | PHP Version 7                                                        |
-   +----------------------------------------------------------------------+
    | Copyright (c) The PHP Group                                          |
    +----------------------------------------------------------------------+
    | This source file is subject to version 3.01 of the PHP license,      |
@@ -23,11 +21,11 @@
 #define URL_DEFAULT_ARG_SEP "&"
 
 /* {{{ php_url_encode_hash */
-PHPAPI int php_url_encode_hash_ex(HashTable *ht, smart_str *formstr,
+PHPAPI void php_url_encode_hash_ex(HashTable *ht, smart_str *formstr,
 				const char *num_prefix, size_t num_prefix_len,
 				const char *key_prefix, size_t key_prefix_len,
 				const char *key_suffix, size_t key_suffix_len,
-			  zval *type, char *arg_sep, int enc_type)
+			  zval *type, const char *arg_sep, int enc_type)
 {
 	zend_string *key = NULL;
 	char *newprefix, *p;
@@ -35,14 +33,11 @@ PHPAPI int php_url_encode_hash_ex(HashTable *ht, smart_str *formstr,
 	size_t arg_sep_len, newprefix_len, prop_len;
 	zend_ulong idx;
 	zval *zdata = NULL;
-
-	if (!ht) {
-		return FAILURE;
-	}
+	ZEND_ASSERT(ht);
 
 	if (GC_IS_RECURSIVE(ht)) {
 		/* Prevent recursion */
-		return SUCCESS;
+		return;
 	}
 
 	if (!arg_sep) {
@@ -130,8 +125,10 @@ PHPAPI int php_url_encode_hash_ex(HashTable *ht, smart_str *formstr,
 					p += key_prefix_len;
 				}
 
-				memcpy(p, num_prefix, num_prefix_len);
-				p += num_prefix_len;
+				if (num_prefix) {
+					memcpy(p, num_prefix, num_prefix_len);
+					p += num_prefix_len;
+				}
 
 				memcpy(p, ekey, ekey_len);
 				p += ekey_len;
@@ -146,13 +143,9 @@ PHPAPI int php_url_encode_hash_ex(HashTable *ht, smart_str *formstr,
 				*(p++) = 'B';
 				*p = '\0';
 			}
-			if (!(GC_FLAGS(ht) & GC_IMMUTABLE)) {
-				GC_PROTECT_RECURSION(ht);
-			}
+			GC_TRY_PROTECT_RECURSION(ht);
 			php_url_encode_hash_ex(HASH_OF(zdata), formstr, NULL, 0, newprefix, newprefix_len, "%5D", 3, (Z_TYPE_P(zdata) == IS_OBJECT ? zdata : NULL), arg_sep, enc_type);
-			if (!(GC_FLAGS(ht) & GC_IMMUTABLE)) {
-				GC_UNPROTECT_RECURSION(ht);
-			}
+			GC_TRY_UNPROTECT_RECURSION(ht);
 			efree(newprefix);
 		} else if (Z_TYPE_P(zdata) == IS_NULL || Z_TYPE_P(zdata) == IS_RESOURCE) {
 			/* Skip these types */
@@ -162,7 +155,9 @@ PHPAPI int php_url_encode_hash_ex(HashTable *ht, smart_str *formstr,
 				smart_str_appendl(formstr, arg_sep, arg_sep_len);
 			}
 			/* Simple key=value */
-			smart_str_appendl(formstr, key_prefix, key_prefix_len);
+			if (key_prefix) {
+				smart_str_appendl(formstr, key_prefix, key_prefix_len);
+			}
 			if (key) {
 				zend_string *ekey;
 				if (enc_type == PHP_QUERY_RFC3986) {
@@ -179,7 +174,9 @@ PHPAPI int php_url_encode_hash_ex(HashTable *ht, smart_str *formstr,
 				}
 				smart_str_append_long(formstr, idx);
 			}
-			smart_str_appendl(formstr, key_suffix, key_suffix_len);
+			if (key_suffix) {
+				smart_str_appendl(formstr, key_suffix, key_suffix_len);
+			}
 			smart_str_appendl(formstr, "=", 1);
 			switch (Z_TYPE_P(zdata)) {
 				case IS_STRING: {
@@ -219,13 +216,10 @@ PHPAPI int php_url_encode_hash_ex(HashTable *ht, smart_str *formstr,
 			}
 		}
 	} ZEND_HASH_FOREACH_END();
-
-	return SUCCESS;
 }
 /* }}} */
 
-/* {{{ proto string http_build_query(mixed formdata [, string prefix [, string arg_separator [, int enc_type]]])
-   Generates a form-encoded query string from an associative array or object. */
+/* {{{ Generates a form-encoded query string from an associative array or object. */
 PHP_FUNCTION(http_build_query)
 {
 	zval *formdata;
@@ -238,16 +232,11 @@ PHP_FUNCTION(http_build_query)
 		Z_PARAM_ARRAY_OR_OBJECT(formdata)
 		Z_PARAM_OPTIONAL
 		Z_PARAM_STRING(prefix, prefix_len)
-		Z_PARAM_STRING(arg_sep, arg_sep_len)
+		Z_PARAM_STRING_OR_NULL(arg_sep, arg_sep_len)
 		Z_PARAM_LONG(enc_type)
-	ZEND_PARSE_PARAMETERS_END_EX(RETURN_FALSE);
+	ZEND_PARSE_PARAMETERS_END();
 
-	if (php_url_encode_hash_ex(HASH_OF(formdata), &formstr, prefix, prefix_len, NULL, 0, NULL, 0, (Z_TYPE_P(formdata) == IS_OBJECT ? formdata : NULL), arg_sep, (int)enc_type) == FAILURE) {
-		if (formstr.s) {
-			smart_str_free(&formstr);
-		}
-		RETURN_FALSE;
-	}
+	php_url_encode_hash_ex(HASH_OF(formdata), &formstr, prefix, prefix_len, NULL, 0, NULL, 0, (Z_TYPE_P(formdata) == IS_OBJECT ? formdata : NULL), arg_sep, (int)enc_type);
 
 	if (!formstr.s) {
 		RETURN_EMPTY_STRING();

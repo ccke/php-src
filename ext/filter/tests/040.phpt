@@ -16,7 +16,12 @@ var_dump(filter_has_var(INPUT_GET, "a"));
 var_dump(filter_has_var(INPUT_GET, "c"));
 var_dump(filter_has_var(INPUT_GET, "abc"));
 var_dump(filter_has_var(INPUT_GET, "cc"));
-var_dump(filter_has_var(-1, "cc"));
+try {
+    filter_has_var(-1, "cc");
+} catch (ValueError $exception) {
+    echo $exception->getMessage() . "\n";
+}
+
 var_dump(filter_has_var(0, "cc"));
 
 echo "Done\n";
@@ -29,6 +34,6 @@ bool(true)
 bool(true)
 bool(false)
 bool(false)
-bool(false)
+filter_has_var(): Argument #1 ($input_type) must be an INPUT_* constant
 bool(false)
 Done

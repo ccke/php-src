@@ -1,7 +1,8 @@
 /*
  * The MIT License (MIT)
  *
- * Copyright (c) 2015 Derick Rethans
+ * Copyright (c) 2015-2019 Derick Rethans
+ * Copyright (c) 2018 MongoDB, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -35,6 +36,12 @@
 #  if defined(__BIG_ENDIAN__)
 #   define WORDS_BIGENDIAN
 #  endif
+# endif
+#endif
+
+#if (defined(__BYTE_ORDER) && defined(__BIG_ENDIAN))
+# if __BYTE_ORDER == __BIG_ENDIAN
+#  define WORDS_BIGENDIAN
 # endif
 #endif
 
@@ -393,7 +400,7 @@ void timelib_dump_tzinfo(timelib_tzinfo *tz)
 		tz->type[0].isgmtcnt
 		);
 	for (i = 0; i < tz->bit64.timecnt; i++) {
-		printf ("%016lX (%20ld) = %3d [%5ld %1d %3d '%s' (%d,%d)]\n",
+		printf ("%016" PRIX64 " (%20" PRId64 ") = %3d [%5ld %1d %3d '%s' (%d,%d)]\n",
 			tz->trans[i], tz->trans[i], tz->trans_idx[i],
 			(long int) tz->type[tz->trans_idx[i]].offset,
 			tz->type[tz->trans_idx[i]].isdst,
@@ -404,14 +411,14 @@ void timelib_dump_tzinfo(timelib_tzinfo *tz)
 			);
 	}
 	for (i = 0; i < tz->bit64.leapcnt; i++) {
-		printf ("%016lX (%20ld) = %d\n",
+		printf ("%016" PRIX64 " (%20ld) = %d\n",
 			tz->leap_times[i].trans,
 			(long) tz->leap_times[i].trans,
 			tz->leap_times[i].offset);
 	}
 }
 
-static int seek_to_tz_position(const unsigned char **tzf, char *timezone, const timelib_tzdb *tzdb)
+static int seek_to_tz_position(const unsigned char **tzf, const char *timezone, const timelib_tzdb *tzdb)
 {
 	int left = 0, right = tzdb->index_size - 1;
 
@@ -448,7 +455,7 @@ const timelib_tzdb_index_entry *timelib_timezone_identifiers_list(const timelib_
 	return tzdb->index;
 }
 
-int timelib_timezone_id_is_valid(char *timezone, const timelib_tzdb *tzdb)
+int timelib_timezone_id_is_valid(const char *timezone, const timelib_tzdb *tzdb)
 {
 	const unsigned char *tzf;
 	return (seek_to_tz_position(&tzf, timezone, tzdb));
@@ -481,7 +488,7 @@ static void read_64bit_header(const unsigned char **tzf, timelib_tzinfo *tz)
 	*tzf += sizeof(buffer);
 }
 
-static timelib_tzinfo* timelib_tzinfo_ctor(char *name)
+static timelib_tzinfo* timelib_tzinfo_ctor(const char *name)
 {
 	timelib_tzinfo *t;
 	t = timelib_calloc(1, sizeof(timelib_tzinfo));
@@ -490,7 +497,7 @@ static timelib_tzinfo* timelib_tzinfo_ctor(char *name)
 	return t;
 }
 
-timelib_tzinfo *timelib_parse_tzfile(char *timezone, const timelib_tzdb *tzdb, int *error_code)
+timelib_tzinfo *timelib_parse_tzfile(const char *timezone, const timelib_tzdb *tzdb, int *error_code)
 {
 	const unsigned char *tzf;
 	timelib_tzinfo *tmp;
@@ -502,11 +509,6 @@ timelib_tzinfo *timelib_parse_tzfile(char *timezone, const timelib_tzdb *tzdb, i
 		tmp = timelib_tzinfo_ctor(timezone);
 
 		version = read_preamble(&tzf, tmp, &type);
-		if (version == -1) {
-			*error_code = TIMELIB_ERROR_UNSUPPORTED_VERSION;
-			timelib_tzinfo_dtor(tmp);
-			return NULL;
-		}
 		if (version < 2 || version > 3) {
 			*error_code = TIMELIB_ERROR_UNSUPPORTED_VERSION;
 			timelib_tzinfo_dtor(tmp);
@@ -521,6 +523,7 @@ timelib_tzinfo *timelib_parse_tzfile(char *timezone, const timelib_tzdb *tzdb, i
 		if (!skip_64bit_preamble(&tzf, tmp)) {
 			/* 64 bit preamble is not in place */
 			*error_code = TIMELIB_ERROR_CORRUPT_NO_64BIT_PREAMBLE;
+			timelib_tzinfo_dtor(tmp);
 			return NULL;
 		}
 		read_64bit_header(&tzf, tmp);
@@ -607,8 +610,8 @@ static ttinfo* fetch_timezone_offset(timelib_tzinfo *tz, timelib_sll ts, timelib
 	/* If there is no transition time, we pick the first one, if that doesn't
 	 * exist we return NULL */
 	if (!tz->bit64.timecnt || !tz->trans) {
-		*transition_time = 0;
 		if (tz->bit64.typecnt == 1) {
+			*transition_time = INT64_MIN;
 			return &(tz->type[0]);
 		}
 		return NULL;
@@ -619,6 +622,7 @@ static ttinfo* fetch_timezone_offset(timelib_tzinfo *tz, timelib_sll ts, timelib
 	 * one in case there are only DST entries. Not sure which smartass came up
 	 * with this idea in the first though :) */
 	if (ts < tz->trans[0]) {
+		*transition_time = INT64_MIN;
 		return &(tz->type[0]);
 	}
 

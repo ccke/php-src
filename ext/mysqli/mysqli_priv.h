@@ -1,7 +1,5 @@
 /*
   +----------------------------------------------------------------------+
-  | PHP Version 7                                                        |
-  +----------------------------------------------------------------------+
   | Copyright (c) The PHP Group                                          |
   +----------------------------------------------------------------------+
   | This source file is subject to version 3.01 of the PHP license,      |
@@ -25,16 +23,6 @@
 #endif
 #define MYSQL_UNIX_ADDR PHP_MYSQL_UNIX_SOCK_ADDR
 #endif
-
-/* character set support */
-#if defined(MYSQLND_VERSION_ID) || MYSQL_VERSION_ID > 50009
-#define HAVE_MYSQLI_GET_CHARSET
-#endif
-
-#if defined(MYSQLND_VERSION_ID) || MYSQL_VERSION_ID > 50005
-#define HAVE_MYSQLI_SET_CHARSET
-#endif
-
 
 extern const zend_function_entry mysqli_functions[];
 extern const zend_function_entry mysqli_link_methods[];
@@ -90,6 +78,7 @@ PHP_MYSQLI_EXPORT(zend_object *) mysqli_objects_new(zend_class_entry *);
 	mysql->multi_query = 1; \
 }
 
+/* Numbers that cannot be represented as a signed int are converted to a string instead (affects 32-bit builds). */
 #define MYSQLI_RETURN_LONG_INT(__val) \
 { \
 	if ((__val) < ZEND_LONG_MAX) {		\

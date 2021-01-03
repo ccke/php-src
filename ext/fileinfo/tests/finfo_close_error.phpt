@@ -4,25 +4,19 @@ Test finfo_close() function : error conditions
 <?php require_once(__DIR__ . '/skipif.inc'); ?>
 --FILE--
 <?php
-/* Prototype  : resource finfo_close(resource finfo)
- * Description: Close fileinfo resource.
- * Source code: ext/fileinfo/fileinfo.c
- * Alias to functions:
- */
-
 echo "*** Testing finfo_close() : error conditions ***\n";
 
 echo "\n-- Testing finfo_close() function with wrong resource type --\n";
 $fp = fopen( __FILE__, 'r' );
-var_dump( finfo_close( $fp ) );
+try {
+    var_dump( finfo_close( $fp ) );
+} catch (TypeError $e) {
+    echo $e->getMessage(), "\n";
+}
 
 ?>
-===DONE===
---EXPECTF--
+--EXPECT--
 *** Testing finfo_close() : error conditions ***
 
 -- Testing finfo_close() function with wrong resource type --
-
-Warning: finfo_close(): supplied resource is not a valid file_info resource in %s on line %d
-bool(false)
-===DONE===
+finfo_close(): Argument #1 ($finfo) must be of type finfo, resource given

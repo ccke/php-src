@@ -1,7 +1,5 @@
 /*
    +----------------------------------------------------------------------+
-   | PHP Version 7                                                        |
-   +----------------------------------------------------------------------+
    | Copyright (c) The PHP Group                                          |
    +----------------------------------------------------------------------+
    | This source file is subject to version 3.01 of the PHP license,      |
@@ -22,7 +20,6 @@
 #define VIRTUAL_CWD_H
 
 #include "TSRM.h"
-#include "tsrm_config_common.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -33,6 +30,24 @@
 #endif
 
 #include <stdarg.h>
+#include <limits.h>
+
+#if HAVE_SYS_PARAM_H
+# include <sys/param.h>
+#endif
+
+#ifndef MAXPATHLEN
+# if _WIN32
+#  include "win32/ioutil.h"
+#  define MAXPATHLEN PHP_WIN32_IOUTIL_MAXPATHLEN
+# elif PATH_MAX
+#  define MAXPATHLEN PATH_MAX
+# elif defined(MAX_PATH)
+#  define MAXPATHLEN MAX_PATH
+# else
+#  define MAXPATHLEN 256
+# endif
+#endif
 
 #ifdef ZTS
 #define VIRTUAL_DIR
@@ -49,7 +64,7 @@
 #endif
 
 #ifdef ZEND_WIN32
-#include "readdir.h"
+#include "win32/readdir.h"
 #include <sys/utime.h>
 #include "win32/ioutil.h"
 /* mode_t isn't defined on Windows */
@@ -174,6 +189,7 @@ CWD_API int virtual_chown(const char *filename, uid_t owner, gid_t group, int li
 /* One of the following constants must be used as the last argument
    in virtual_file_ex() call. */
 
+// TODO Make this into an enum
 #define CWD_EXPAND   0 /* expand "." and ".." but don't resolve symlinks     */
 #define CWD_FILEPATH 1 /* resolve symlinks if file is exist otherwise expand */
 #define CWD_REALPATH 2 /* call realpath(), resolve symlinks. File must exist */

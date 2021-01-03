@@ -1,7 +1,5 @@
 /*
    +----------------------------------------------------------------------+
-   | PHP Version 7                                                        |
-   +----------------------------------------------------------------------+
    | Copyright (c) The PHP Group                                          |
    +----------------------------------------------------------------------+
    | This source file is subject to version 3.01 of the PHP license,      |
@@ -27,6 +25,33 @@
 #include "php_com_dotnet.h"
 #include "php_com_dotnet_internal.h"
 
+static HashTable php_com_typelibraries;
+
+#ifdef ZTS
+static MUTEX_T php_com_typelibraries_mutex;
+#endif
+
+PHP_MINIT_FUNCTION(com_typeinfo)
+{
+	zend_hash_init(&php_com_typelibraries, 0, NULL, php_com_typelibrary_dtor, 1);
+
+#ifdef ZTS
+	php_com_typelibraries_mutex = tsrm_mutex_alloc();
+#endif
+
+	return SUCCESS;
+}
+
+PHP_MSHUTDOWN_FUNCTION(com_typeinfo)
+{
+	zend_hash_destroy(&php_com_typelibraries);
+
+#ifdef ZTS
+	tsrm_mutex_free(php_com_typelibraries_mutex);
+#endif
+
+	return SUCCESS;
+}
 
 /* The search string can be either:
  * a) a file name
@@ -220,34 +245,54 @@ void php_com_typelibrary_dtor(zval *pDest)
 	ITypeLib_Release(Lib);
 }
 
-PHP_COM_DOTNET_API ITypeLib *php_com_load_typelib_via_cache(char *search_string,
-	int codepage, int *cached)
+ITypeLib *php_com_cache_typelib(ITypeLib* TL, char *cache_key, zend_long cache_key_len) {
+	ITypeLib* result;
+#ifdef ZTS
+	tsrm_mutex_lock(php_com_typelibraries_mutex);
+#endif
+
+	result = zend_hash_str_add_ptr(&php_com_typelibraries, cache_key, cache_key_len, TL);
+
+#ifdef ZTS
+	tsrm_mutex_unlock(php_com_typelibraries_mutex);
+#endif
+
+	return result;
+}
+
+PHP_COM_DOTNET_API ITypeLib *php_com_load_typelib_via_cache(const char *search_string, int codepage)
 {
 	ITypeLib *TL;
 	char *name_dup;
-	size_t l;
+	zend_string *key = zend_string_init(search_string, strlen(search_string), 1);
 
-	l = strlen(search_string);
+#ifdef ZTS
+	tsrm_mutex_lock(php_com_typelibraries_mutex);
+#endif
 
-	if ((TL = zend_ts_hash_str_find_ptr(&php_com_typelibraries, search_string, l)) != NULL) {
-		*cached = 1;
+	if ((TL = zend_hash_find_ptr(&php_com_typelibraries, key)) != NULL) {
 		/* add a reference for the caller */
 		ITypeLib_AddRef(TL);
-		return TL;
+
+		goto php_com_load_typelib_via_cache_return;
 	}
 
-	*cached = 0;
-	name_dup = estrndup(search_string, l);
+	name_dup = estrndup(ZSTR_VAL(key), ZSTR_LEN(key));
 	TL = php_com_load_typelib(name_dup, codepage);
 	efree(name_dup);
 
 	if (TL) {
-		if (NULL != zend_ts_hash_str_update_ptr(&php_com_typelibraries,
-				search_string, l, TL)) {
+		if (NULL != zend_hash_add_ptr(&php_com_typelibraries, key, TL)) {
 			/* add a reference for the hash table */
 			ITypeLib_AddRef(TL);
 		}
 	}
+
+php_com_load_typelib_via_cache_return:
+#ifdef ZTS
+	tsrm_mutex_unlock(php_com_typelibraries_mutex);
+#endif
+	zend_string_release(key);
 
 	return TL;
 }
@@ -261,18 +306,20 @@ ITypeInfo *php_com_locate_typeinfo(char *typelibname, php_com_dotnet_object *obj
 
 	if (obj) {
 		if (dispname == NULL && sink) {
-			IProvideClassInfo2 *pci2;
-			IProvideClassInfo *pci;
+			if (V_VT(&obj->v) == VT_DISPATCH) {
+				IProvideClassInfo2 *pci2;
+				IProvideClassInfo *pci;
 
-			if (SUCCEEDED(IDispatch_QueryInterface(V_DISPATCH(&obj->v), &IID_IProvideClassInfo2, (void**)&pci2))) {
-				gotguid = SUCCEEDED(IProvideClassInfo2_GetGUID(pci2, GUIDKIND_DEFAULT_SOURCE_DISP_IID, &iid));
-				IProvideClassInfo2_Release(pci2);
-			}
-			if (!gotguid && SUCCEEDED(IDispatch_QueryInterface(V_DISPATCH(&obj->v), &IID_IProvideClassInfo, (void**)&pci))) {
-				/* examine the available interfaces */
-				/* TODO: write some code here */
-				php_error_docref(NULL, E_WARNING, "IProvideClassInfo: this code not yet written!");
-				IProvideClassInfo_Release(pci);
+				if (SUCCEEDED(IDispatch_QueryInterface(V_DISPATCH(&obj->v), &IID_IProvideClassInfo2, (void**)&pci2))) {
+					gotguid = SUCCEEDED(IProvideClassInfo2_GetGUID(pci2, GUIDKIND_DEFAULT_SOURCE_DISP_IID, &iid));
+					IProvideClassInfo2_Release(pci2);
+				}
+				if (!gotguid && SUCCEEDED(IDispatch_QueryInterface(V_DISPATCH(&obj->v), &IID_IProvideClassInfo, (void**)&pci))) {
+					/* examine the available interfaces */
+					/* TODO: write some code here */
+					php_error_docref(NULL, E_WARNING, "IProvideClassInfo: this code not yet written!");
+					IProvideClassInfo_Release(pci);
+				}
 			}
 		} else if (dispname == NULL) {
 			if (obj->typeinfo) {
@@ -289,15 +336,17 @@ ITypeInfo *php_com_locate_typeinfo(char *typelibname, php_com_dotnet_object *obj
 			/* get the library from the object; the rest will be dealt with later */
 			ITypeInfo_GetContainingTypeLib(obj->typeinfo, &typelib, &idx);
 		} else if (typelibname == NULL) {
-			IDispatch_GetTypeInfo(V_DISPATCH(&obj->v), 0, LANG_NEUTRAL, &typeinfo);
-			if (dispname) {
-				unsigned int idx;
-				/* get the library from the object; the rest will be dealt with later */
-				ITypeInfo_GetContainingTypeLib(typeinfo, &typelib, &idx);
+			if (V_VT(&obj->v) == VT_DISPATCH) {
+				IDispatch_GetTypeInfo(V_DISPATCH(&obj->v), 0, LANG_NEUTRAL, &typeinfo);
+				if (dispname) {
+					unsigned int idx;
+					/* get the library from the object; the rest will be dealt with later */
+					ITypeInfo_GetContainingTypeLib(typeinfo, &typelib, &idx);
 
-				if (typelib) {
-					ITypeInfo_Release(typeinfo);
-					typeinfo = NULL;
+					if (typelib) {
+						ITypeInfo_Release(typeinfo);
+						typeinfo = NULL;
+					}
 				}
 			}
 		}
@@ -430,6 +479,7 @@ int php_com_process_typeinfo(ITypeInfo *typeinfo, HashTable *id_to_name, int pri
 	char *ansiname = NULL;
 	size_t ansinamelen;
 	int ret = 0;
+	DISPID lastid = 0;	/* for props */
 
 	if (FAILED(ITypeInfo_GetTypeAttr(typeinfo, &attr))) {
 		return 0;
@@ -463,7 +513,6 @@ int php_com_process_typeinfo(ITypeInfo *typeinfo, HashTable *id_to_name, int pri
 		/* So we've got the dispatch interface; lets list the event methods */
 		for (i = 0; i < attr->cFuncs; i++) {
 			zval tmp;
-			DISPID lastid = 0;	/* for props */
 			int isprop;
 
 			if (FAILED(ITypeInfo_GetFuncDesc(typeinfo, i, &func)))
@@ -576,8 +625,8 @@ int php_com_process_typeinfo(ITypeInfo *typeinfo, HashTable *id_to_name, int pri
 					ZVAL_STRINGL(&tmp, ansiname, ansinamelen);
 					zend_hash_index_update(id_to_name, func->memid, &tmp);
 					// TODO: avoid reallocation???
-					efree(ansiname);
 				}
+				efree(ansiname);
 			}
 			ITypeInfo_ReleaseFuncDesc(typeinfo, func);
 		}
@@ -588,7 +637,7 @@ int php_com_process_typeinfo(ITypeInfo *typeinfo, HashTable *id_to_name, int pri
 
 		ret = 1;
 	} else {
-		zend_error(E_WARNING, "That's not a dispatchable interface!! type kind = %08x", attr->typekind);
+		zend_throw_error(NULL, "Type kind must be dispatchable, %08x given", attr->typekind);
 	}
 
 	ITypeInfo_ReleaseTypeAttr(typeinfo, attr);

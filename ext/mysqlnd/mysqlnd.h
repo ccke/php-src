@@ -1,7 +1,5 @@
 /*
   +----------------------------------------------------------------------+
-  | PHP Version 7                                                        |
-  +----------------------------------------------------------------------+
   | Copyright (c) The PHP Group                                          |
   +----------------------------------------------------------------------+
   | This source file is subject to version 3.01 of the PHP license,      |
@@ -21,12 +19,11 @@
 #ifndef MYSQLND_H
 #define MYSQLND_H
 
-#define PHP_MYSQLND_VERSION "mysqlnd 5.0.12-dev - 20150407 - $Id$"
-#define MYSQLND_VERSION_ID 50012
+#define PHP_MYSQLND_VERSION "mysqlnd " PHP_VERSION
+#define MYSQLND_VERSION_ID PHP_VERSION_ID
 
 #define MYSQLND_PLUGIN_API_VERSION 2
 
-#define MYSQLND_STRING_TO_INT_CONVERSION
 /*
   This force mysqlnd to do a single (or more depending on amount of data)
   non-blocking read() calls before sending a command to the server. Useful
@@ -38,7 +35,7 @@
   on production systems, if of course measured performance degradation is not
   minimal.
 */
-#if A0 && PHP_DEBUG
+#if defined(A0) && PHP_DEBUG
 #define MYSQLND_DO_WIRE_CHECK_BEFORE_COMMAND 1
 #endif
 
@@ -46,10 +43,6 @@
 #define MYSQLND_DBG_ENABLED 1
 #else
 #define MYSQLND_DBG_ENABLED 0
-#endif
-
-#if defined(MYSQLND_COMPRESSION_WANTED) && defined(HAVE_ZLIB)
-#define MYSQLND_COMPRESSION_ENABLED 1
 #endif
 
 #ifdef ZTS
@@ -66,9 +59,9 @@
 PHPAPI void mysqlnd_library_init(void);
 PHPAPI void mysqlnd_library_end(void);
 
-PHPAPI unsigned int mysqlnd_plugin_register();
+PHPAPI unsigned int mysqlnd_plugin_register(void);
 PHPAPI unsigned int mysqlnd_plugin_register_ex(struct st_mysqlnd_plugin_header * plugin);
-PHPAPI unsigned int mysqlnd_plugin_count();
+PHPAPI unsigned int mysqlnd_plugin_count(void);
 PHPAPI void * mysqlnd_plugin_find(const char * const name);
 
 PHPAPI void mysqlnd_plugin_apply_with_argument(apply_func_arg_t apply_func, void * argument);
@@ -105,10 +98,10 @@ PHPAPI MYSQLND * mysqlnd_connection_connect(MYSQLND * conn,
 PHPAPI void mysqlnd_debug(const char *mode);
 
 /* Query */
-#define mysqlnd_fetch_into(result, flags, ret_val, ext)	(result)->m.fetch_into((result), (flags), (ret_val), (ext) ZEND_FILE_LINE_CC)
+#define mysqlnd_fetch_into(result, flags, ret_val)	(result)->m.fetch_into((result), (flags), (ret_val) ZEND_FILE_LINE_CC)
 #define mysqlnd_fetch_row_c(result)						(result)->m.fetch_row_c((result))
-#define mysqlnd_fetch_all(result, flags, return_value)	(result)->m.fetch_all((result), (flags), (return_value) ZEND_FILE_LINE_CC)
-#define mysqlnd_result_fetch_field_data(res,offset,ret)	(res)->m.fetch_field_data((res), (offset), (ret))
+#define mysqlnd_fetch_row_zval(result, row_ptr, fetched) \
+	(result)->m.fetch_row((result), (row_ptr), 0, (fetched))
 #define mysqlnd_get_connection_stats(conn, values)		((conn)->data)->m->get_statistics((conn)->data,  (values) ZEND_FILE_LINE_CC)
 #define mysqlnd_get_client_stats(values)				_mysqlnd_get_client_stats(mysqlnd_global_stats, (values) ZEND_FILE_LINE_CC)
 
@@ -120,9 +113,8 @@ PHPAPI void mysqlnd_debug(const char *mode);
 
 PHPAPI enum_func_status mysqlnd_poll(MYSQLND **r_array, MYSQLND **e_array, MYSQLND ***dont_poll, long sec, long usec, int * desc_num);
 
-#define mysqlnd_use_result(conn)		((conn)->data)->m->use_result((conn)->data, 0)
-#define mysqlnd_store_result(conn)		((conn)->data)->m->store_result((conn)->data, MYSQLND_STORE_NO_COPY)
-#define mysqlnd_store_result_ofs(conn)	((conn)->data)->m->store_result((conn)->data, MYSQLND_STORE_COPY)
+#define mysqlnd_use_result(conn)		((conn)->data)->m->use_result((conn)->data)
+#define mysqlnd_store_result(conn)		((conn)->data)->m->store_result((conn)->data)
 #define mysqlnd_next_result(conn)		((conn)->data)->m->next_result((conn)->data)
 #define mysqlnd_more_results(conn)		((conn)->data)->m->more_results((conn)->data)
 #define mysqlnd_free_result(r,e_or_i)	((MYSQLND_RES*)r)->m.free_result(((MYSQLND_RES*)(r)), (e_or_i))
@@ -161,8 +153,8 @@ PHPAPI enum_func_status mysqlnd_poll(MYSQLND **r_array, MYSQLND **e_array, MYSQL
 #define mysqlnd_fetch_fields(result)			(result)->m.fetch_fields((result))
 
 /* mysqlnd metadata */
-PHPAPI const char *	mysqlnd_get_client_info();
-PHPAPI unsigned long mysqlnd_get_client_version();
+PHPAPI const char *	mysqlnd_get_client_info(void);
+PHPAPI unsigned long mysqlnd_get_client_version(void);
 
 #define mysqlnd_ssl_set(conn, key, cert, ca, capath, cipher) ((conn)->data)->m->ssl_set((conn)->data, (key), (cert), (ca), (capath), (cipher))
 
@@ -315,14 +307,7 @@ ZEND_BEGIN_MODULE_GLOBALS(mysqlnd)
 	zend_long		log_mask;
 	zend_long		net_read_timeout;
 	zend_long		mempool_default_size;
-	zend_long		debug_emalloc_fail_threshold;
-	zend_long		debug_ecalloc_fail_threshold;
-	zend_long		debug_erealloc_fail_threshold;
-	zend_long		debug_malloc_fail_threshold;
-	zend_long		debug_calloc_fail_threshold;
-	zend_long		debug_realloc_fail_threshold;
 	char *			sha256_server_public_key;
-	zend_bool		fetch_data_copy;
 	zend_bool		collect_statistics;
 	zend_bool		collect_memory_statistics;
 ZEND_END_MODULE_GLOBALS(mysqlnd)

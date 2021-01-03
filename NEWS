@@ -1,40 +1,35 @@
 PHP                                                                        NEWS
 |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
-?? ??? ????, PHP 8.0.0alpha1
+?? ??? ????, PHP 8.1.0alpha1
 
 - Core:
-  . Removed the pdo_odbc.db2_instance_name php.ini directive. (Kalle)
-  . Fixed bug #77619 (Wrong reflection on MultipleIterator::__construct).
-    (Fabien Villepinte)
+  . Fixed inclusion order for phpize builds on Windows. (cmb)
+  . Added missing hashtable insertion APIs for arr/obj/ref. (Sara)
+
+- FTP:
+  . Convert resource<ftp> to object \FTPConnection. (Sara)
 
 - GD:
-  . Removed deprecated image2wbmp(). (cmb)
-  . Removed deprecated png2wbmp() and jpeg2wbmp(). (cmb)
+  . Convert resource<gd font> to object \GdFont. (Sara)
 
-- Intl:
-  . Removed deprecated INTL_IDNA_VARIANT_2003. (cmb)
+- hash:
+  . Implemented FR #68109 (Add MurmurHash V3). (Anatol, Michael)
 
-- JIT:
-  . Fixed bug #77857 (Wrong result if executed with JIT). (Laruence)
+- MySQLi:
+  . Fixed bug #70372 (Emulate mysqli_fetch_all() for libmysqlclient). (Nikita)
 
-- LDAP:
-  . Removed deprecated ldap_sort. (mcmic)
+- OpenSSL:
+  . Bump minimal OpenSSL version to 1.0.2. (Jakub Zelenka)
 
 - PDO:
-  . Fixed bug #77849 (Disable cloning of PDO handle/connection objects).
-    (camporter)
+  . Fixed bug #40913 (PDO_MYSQL: PDO::PARAM_LOB does not bind to a stream for
+    fetching a BLOB). (Nikita)
 
-- phpdbg:
-  . Fixed bug #76596 (phpdbg support for display_errors=stderr). (kabel)
-  . Fixed bug #76801 (too many open files). (alekitto)
-  . Fixed bug #77800 (phpdbg segfaults on listing some conditional breakpoints).
-    (krakjoe)
-  . Fixed bug #77805 (phpdbg build fails when readline is shared). (krakjoe)
-  
-- sodium:
-  . Fixed bug #77646 (sign_detached() strings not terminated). (Frank)
+. PDO SQLite:
+  . Fixed bug #38334 (Proper data-type support for PDO_SQLITE). (Nikita)
 
-- XML:
-  . Fixed bug #76874 (xml_parser_free() should never leak memory). (Nikita
+- PSpell:
+  . Convert resource<pspell> to object \PSpell. (Sara)
+  . Convert resource<pspell config> to object \PSpellConfig. (Sara)
 
 <<< NOTE: Insert NEWS from last stable release here prior to actual release! >>>

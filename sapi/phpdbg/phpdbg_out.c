@@ -1,7 +1,5 @@
 /*
    +----------------------------------------------------------------------+
-   | PHP Version 7                                                        |
-   +----------------------------------------------------------------------+
    | Copyright (c) The PHP Group                                          |
    +----------------------------------------------------------------------+
    | This source file is subject to version 3.01 of the PHP license,      |
@@ -863,17 +861,6 @@ PHPDBG_API int phpdbg_xml_vasprintf(char **buf, const char *format, zend_bool es
 }
 /* copy end */
 
-PHPDBG_API int _phpdbg_xml_asprintf(char **buf, const char *format, zend_bool escape_xml, ...) {
-	int ret;
-	va_list va;
-
-	va_start(va, escape_xml);
-	ret = phpdbg_xml_vasprintf(buf, format, escape_xml, va);
-	va_end(va);
-
-	return ret;
-}
-
 PHPDBG_API int _phpdbg_asprintf(char **buf, const char *format, ...) {
 	int ret;
 	va_list va;
@@ -1030,9 +1017,8 @@ static int phpdbg_process_print(int fd, int type, const char *tag, const char *m
 				} else {
 					phpdbg_mixed_write(fd, msg, msglen);
 				}
-				return msglen;
 			}
-		break;
+			return msglen;
 
 		/* no formatting on logging output */
 		case P_LOG:
@@ -1046,6 +1032,7 @@ static int phpdbg_process_print(int fd, int type, const char *tag, const char *m
 				}
 			}
 			break;
+		EMPTY_SWITCH_DEFAULT_CASE()
 	}
 
 	if (PHPDBG_G(flags) & PHPDBG_WRITE_XML) {

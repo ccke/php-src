@@ -1,7 +1,5 @@
 /*
   +----------------------------------------------------------------------+
-  | PHP Version 7                                                        |
-  +----------------------------------------------------------------------+
   | Copyright (c) The PHP Group                                          |
   +----------------------------------------------------------------------+
   | This source file is subject to version 3.01 of the PHP license,      |
@@ -67,7 +65,7 @@ void mysqlnd_upsert_status_init(MYSQLND_UPSERT_STATUS * const upsert_status);
 	}
 
 
-PHPAPI enum_func_status mysqlnd_error_info_init(MYSQLND_ERROR_INFO * const info, const zend_bool persistent);
+PHPAPI void mysqlnd_error_info_init(MYSQLND_ERROR_INFO * const info, const zend_bool persistent);
 PHPAPI void	mysqlnd_error_info_free_contents(MYSQLND_ERROR_INFO * const info);
 
 #define GET_CONNECTION_STATE(state_struct)		(state_struct)->m->get((state_struct))

@@ -1,7 +1,7 @@
 /*
  * The MIT License (MIT)
  *
- * Copyright (c) 2015 Derick Rethans
+ * Copyright (c) 2015-2019 Derick Rethans
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -39,13 +39,7 @@
 # endif
 #endif
 
-#ifdef HAVE_STRING_H
-# include <string.h>
-#endif
-
-#ifdef HAVE_STRINGS_H
-# include <strings.h>
-#endif
+#include <string.h>
 
 #ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>
@@ -68,10 +62,7 @@
 #endif
 
 #include <stdio.h>
-
-#if HAVE_LIMITS_H
 #include <limits.h>
-#endif
 
 #define TIMELIB_SECOND   1
 #define TIMELIB_MINUTE   2
@@ -140,7 +131,7 @@ struct _tlinfo
 int timelib_apply_localtime(timelib_time *t, unsigned int localtime);
 
 /* From parse_tz.c */
-void timelib_time_tz_abbr_update(timelib_time* tm, char* tz_abbr);
+void timelib_time_tz_abbr_update(timelib_time* tm, const char* tz_abbr);
 
 /* From timelib.c */
 int timelib_strcasecmp(const char *s1, const char *s2);

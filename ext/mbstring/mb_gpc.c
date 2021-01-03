@@ -1,7 +1,5 @@
 /*
    +----------------------------------------------------------------------+
-   | PHP Version 7                                                        |
-   +----------------------------------------------------------------------+
    | Copyright (c) The PHP Group                                          |
    +----------------------------------------------------------------------+
    | This source file is subject to version 3.01 of the PHP license,      |
@@ -18,10 +16,6 @@
  */
 
 /* {{{ includes */
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-
 #include "php.h"
 #include "php_ini.h"
 #include "php_variables.h"
@@ -43,8 +37,6 @@
 #include "mb_gpc.h"
 /* }}} */
 
-#if HAVE_MBSTRING
-
 ZEND_EXTERN_MODULE_GLOBALS(mbstring)
 
 /* {{{ MBSTRING_API SAPI_TREAT_DATA_FUNC(mbstr_treat_data)
@@ -57,11 +49,6 @@ MBSTRING_API SAPI_TREAT_DATA_FUNC(mbstr_treat_data)
 	int free_buffer=0;
 	const mbfl_encoding *detected;
 	php_mb_encoding_handler_info_t info;
-
-	if (arg != PARSE_STRING) {
-		char *value = MBSTRG(internal_encoding_name);
-		_php_mb_ini_mbstring_internal_encoding_set(value, value ? strlen(value): 0);
-	}
 
 	if (!MBSTRG(encoding_translation)) {
 		php_default_treat_data(arg, str, destArray);
@@ -199,9 +186,9 @@ const mbfl_encoding *_php_mb_encoding_handler_ex(const php_mb_encoding_handler_i
 	mbfl_encoding_detector *identd = NULL;
 	mbfl_buffer_converter *convd = NULL;
 
-	mbfl_string_init_set(&string, info->to_language, info->to_encoding);
-	mbfl_string_init_set(&resvar, info->to_language, info->to_encoding);
-	mbfl_string_init_set(&resval, info->to_language, info->to_encoding);
+	mbfl_string_init_set(&string, info->to_encoding);
+	mbfl_string_init_set(&resvar, info->to_encoding);
+	mbfl_string_init_set(&resval, info->to_encoding);
 
 	if (!res || *res == '\0') {
 		goto out;
@@ -384,5 +371,3 @@ SAPI_POST_HANDLER_FUNC(php_mb_post_handler)
 	}
 }
 /* }}} */
-
-#endif /* HAVE_MBSTRING */
